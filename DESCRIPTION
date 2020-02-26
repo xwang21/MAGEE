@@ -1,0 +1,14 @@
+Package: MAGEE
+Type: Package
+Version: 0.1.1
+Date: 2020-02-20
+Title: Mixed Model Association Test for GEne-Environment Interaction
+Author: Xinyu Wang, Han chen
+Maintainer: Xinyu Wang <xinyu.wang@uth.tmc.edu>
+Description: Use a glmmkin class object from the null GLMM to perform variant set-based main effect tests, gene-environment interaction tests, and joint tests for association with genotypes in a GDS file (.gds).
+License: GPL-3
+Imports: Matrix, parallel, MASS, SeqArray, SeqVarTools, foreach, GMMAT, CompQuadForm
+Suggests: doMC
+Encoding: UTF-8
+LazyData: true
+Depends: R (>= 3.2.0)

@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1572655557398.000,
+    "dirty" : false,
+    "encoding" : "ISO8859-1",
+    "folds" : "",
+    "hash" : "3778939478",
+    "id" : "3A7963A9",
+    "lastKnownWriteTime" : 1572750929,
+    "last_content_update" : 1572750929357,
+    "path" : "~/MAGEE/R/glmm.gei.R",
+    "project_path" : "R/glmm.gei.R",
+    "properties" : {
+        "cursorPosition" : "15,32",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 8,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

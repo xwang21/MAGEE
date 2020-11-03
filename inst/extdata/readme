@@ -3,6 +3,8 @@ geno.txt.gz: gzip compressed text genotype file for 400 individuals and 100 SNPs
 geno.txt.bz2: bzip2 compressed text genotype file for 400 individuals and 100 SNPs
 geno.gds: GDS format genotype file for 400 individuals and 100 SNPs
 geno.bed, geno.bim, geno.fam: plink format genotype file for 400 individuals and 100 SNPs
+geno.bgen: BGEN genotype file for 400 individuals and 100 SNPs
+geno.sample: BGEN sample file for 400 individuals
 meta1.txt, meta2.txt, meta3.txt: example input files for glmm.score.meta( )
 GRM.txt.bz2: genetic relationship matrix for 400 individuals, also available in example.rda
 pheno.txt: phenotype and covariate file for 400 individuals from a cross-sectional study, also available in example.rda

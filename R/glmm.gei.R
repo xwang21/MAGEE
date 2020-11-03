@@ -1,8 +1,11 @@
-glmm.gei <- function(null.obj, interaction, geno.file, outfile, center=T, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch=100, ncores = 1){
+glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.covariates=NULL, bgen.samplefile=NULL, center=T, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch=100, ncores = 1){
   if(Sys.info()["sysname"] == "Windows" && ncores > 1) {
     warning("The package doMC is not available on Windows... Switching to single thread...")
     ncores <- 1
   }
+
+  if(!grepl("\\.gds$", geno.file) & !grepl("\\.bgen$", geno.file)) stop("Error: only .gds and .bgen format is supported in geno.file!")
+
   missing.method <- try(match.arg(missing.method, c("impute2mean", "omit")))
   if(class(missing.method) == "try-error") stop("Error: \"missing.method\" must be \"impute2mean\" or \"omit\".")
   if(!class(interaction) %in% c("integer", "numeric", "character")) stop("Error: \"interaction\" should be an integer, numeric, or character vector.")
@@ -16,37 +19,192 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, center=T, MAF.ra
       null.obj$Sigma_i <- Matrix(null.obj$Sigma_i, sparse = TRUE)
     }
     rm(J)
-  } else residuals <- null.obj$scaled.residuals
-  if(class(interaction)=="character") E <- as.matrix(null.obj$X[,which(colnames(null.obj$X) %in% interaction)])
-  else E <- as.matrix(null.obj$X[,interaction+1])
-  E <- scale(E, scale = FALSE)
-  if(!grepl("\\.gds$", geno.file)) stop("Error: currently only .gds format is supported in geno.file!")
-  gds <- SeqArray::seqOpen(geno.file)
-  sample.id <- SeqArray::seqGetData(gds, "sample.id")
-  if(any(is.na(match(null.obj$id_include, sample.id)))) warning("Check your data... Some individuals in null.obj$id_include are missing in sample.id of geno.file!")
-  sample.id <- sample.id[sample.id %in% null.obj$id_include]
-  if(length(sample.id) == 0) stop("Error: null.obj$id_include does not match sample.id in geno.file!")
-  match.id <- match(sample.id, null.obj$id_include)
-  residuals <- residuals[match.id]
-  if(!is.null(null.obj$P)) null.obj$P <- null.obj$P[match.id, match.id]
-  else {
-    null.obj$Sigma_iX <- null.obj$Sigma_iX[match.id, , drop = FALSE]
-    null.obj$Sigma_i <- null.obj$Sigma_i[match.id, match.id]
+  } else {
+    residuals <- null.obj$scaled.residuals
   }
-  E <- as.matrix(E[match.id, , drop = FALSE])
-  strata <- apply(E, 1, paste, collapse = ":")
-  strata <- if(length(unique(strata))>length(strata)/100) NULL else as.numeric(as.factor(strata))
-  if(!is.null(strata)) strata.list <- lapply(unique(strata), function(x) which(strata==x))
-  variant.idx.all <- SeqArray::seqGetData(gds, "variant.id")
-  SeqArray::seqClose(gds)
-  p.all <- length(variant.idx.all)
+
+  qi <- length(interaction.covariates)
+  ei <- length(interaction)
+  if(class(interaction)=="character") {
+    if (is.null(interaction.covariates)) {
+      if (!all(interaction %in% colnames(null.obj$X))) {stop("there are interactions not in column name of covariate matrix.")}
+      E <- as.matrix(null.obj$X[,which(colnames(null.obj$X) %in% interaction)])
+      E <- scale(E, scale = FALSE)
+    } else {
+      if (any(interaction.covariates %in% interaction)) {stop("there are interaction.covariates also specified as interaction.")}
+      interaction <- c(interaction.covariates, interaction)
+      if (!all(interaction %in% colnames(null.obj$X))) {stop("there are interaction and interaction.covariates not in column name of covariate matrix.")}
+      E <- as.matrix(null.obj$X[,interaction])
+      E <- scale(E, scale = FALSE)
+    }
+  } else {
+    if (is.null(interaction.covariates)) {
+      E <- as.matrix(null.obj$X[,interaction+1])
+      E <- scale(E, scale = FALSE)
+    } else {
+      interaction <- c(interaction.covariates, interaction)
+      E <- as.matrix(null.obj$X[,interaction+1])
+      E <- scale(E, scale = FALSE)
+    }
+  }
+
   ncores <- min(c(ncores, parallel::detectCores(logical = TRUE)))
-  if(ncores > 1) {
-    doMC::registerDoMC(cores = ncores)
-    p.percore <- (p.all-1) %/% ncores + 1
-    n.p.percore_1 <- p.percore * ncores - p.all
-    foreach(b=1:ncores, .inorder=FALSE, .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
-      variant.idx <- if(b <= n.p.percore_1) variant.idx.all[((b-1)*(p.percore-1)+1):(b*(p.percore-1))] else variant.idx.all[(n.p.percore_1*(p.percore-1)+(b-n.p.percore_1-1)*p.percore+1):(n.p.percore_1*(p.percore-1)+(b-n.p.percore_1)*p.percore)]
+
+  if(grepl("\\.gds$", geno.file)) {
+    gds <- SeqArray::seqOpen(geno.file)
+    sample.id <- SeqArray::seqGetData(gds, "sample.id")
+    if(any(is.na(match(null.obj$id_include, sample.id)))) warning("Check your data... Some individuals in null.obj$id_include are missing in sample.id of geno.file!")
+    sample.id <- sample.id[sample.id %in% null.obj$id_include]
+    if(length(sample.id) == 0) stop("Error: null.obj$id_include does not match sample.id in geno.file!")
+    match.id <- match(sample.id, null.obj$id_include)
+    residuals <- residuals[match.id]
+    if(!is.null(null.obj$P)) {
+      null.obj$P <- null.obj$P[match.id, match.id]
+    } else {
+      null.obj$Sigma_iX <- null.obj$Sigma_iX[match.id, , drop = FALSE]
+      null.obj$Sigma_i <- null.obj$Sigma_i[match.id, match.id]
+    }
+    E <- as.matrix(E[match.id, , drop = FALSE])
+    strata <- apply(E, 1, paste, collapse = ":")
+    strata <- if(length(unique(strata))>length(strata)/100) NULL else as.numeric(as.factor(strata))
+    if(!is.null(strata)) strata.list <- lapply(unique(strata), function(x) which(strata==x))
+    variant.idx.all <- SeqArray::seqGetData(gds, "variant.id")
+    SeqArray::seqClose(gds)
+    p.all <- length(variant.idx.all)
+
+    if(ncores > 1) {
+      doMC::registerDoMC(cores = ncores)
+      p.percore <- (p.all-1) %/% ncores + 1
+      n.p.percore_1 <- p.percore * ncores - p.all
+      foreach(b=1:ncores, .inorder=FALSE, .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
+        variant.idx <- if(b <= n.p.percore_1) variant.idx.all[((b-1)*(p.percore-1)+1):(b*(p.percore-1))] else variant.idx.all[(n.p.percore_1*(p.percore-1)+(b-n.p.percore_1-1)*p.percore+1):(n.p.percore_1*(p.percore-1)+(b-n.p.percore_1)*p.percore)]
+        p <- length(variant.idx)
+        gds <- SeqArray::seqOpen(geno.file)
+        SeqArray::seqSetFilter(gds, sample.id = sample.id, verbose = FALSE)
+        rm(sample.id)
+        nbatch.flush <- (p-1) %/% 100000 + 1
+        ii <- 0
+        for(i in 1:nbatch.flush) {
+          gc()
+          tmp.variant.idx <- if(i == nbatch.flush) variant.idx[((i-1)*100000+1):p] else variant.idx[((i-1)*100000+1):(i*100000)]
+          SeqArray::seqSetFilter(gds, variant.id = tmp.variant.idx, verbose = FALSE)
+          MISSRATE <- SeqVarTools::missingGenotypeRate(gds, margin = "by.variant")
+          AF <- 1 - SeqVarTools::alleleFrequency(gds)
+          include <- (MISSRATE <= miss.cutoff & ((AF >= MAF.range[1] & AF <= MAF.range[2]) | (AF >= 1-MAF.range[2] & AF <= 1-MAF.range[1])))
+          if(sum(include) == 0) next
+          ii <- ii + 1
+          tmp.variant.idx <- tmp.variant.idx[include]
+          tmp.p <- length(tmp.variant.idx)
+          SeqArray::seqSetFilter(gds, variant.id = tmp.variant.idx, verbose = FALSE)
+          SNP <- SeqArray::seqGetData(gds, "annotation/id")
+          SNP[SNP == ""] <- NA
+          out <- data.frame(SNP = SNP, CHR = SeqArray::seqGetData(gds, "chromosome"), POS = SeqArray::seqGetData(gds, "position"))
+          rm(SNP)
+          alleles.list <- strsplit(SeqArray::seqGetData(gds, "allele"), ",")
+          out$REF <- unlist(lapply(alleles.list, function(x) x[1]))
+          out$ALT <- unlist(lapply(alleles.list, function(x) paste(x[-1], collapse=",")))
+          out$MISSRATE <- MISSRATE[include]
+          out$AF <- AF[include]
+          rm(alleles.list, include)
+          tmp.out <- lapply(1:((tmp.p-1) %/% nperbatch + 1), function(j) {
+            tmp2.variant.idx <- if(j == (tmp.p-1) %/% nperbatch + 1) tmp.variant.idx[((j-1)*nperbatch+1):tmp.p] else tmp.variant.idx[((j-1)*nperbatch+1):(j*nperbatch)]
+            SeqArray::seqSetFilter(gds, variant.id = tmp2.variant.idx, verbose = FALSE)
+
+            geno <- SeqVarTools::altDosage(gds, use.names = FALSE)
+            ng <- ncol(geno)
+
+            N <- nrow(geno) - colSums(is.na(geno))
+            AF.strata.min <- AF.strata.max <- rep(NA, ncol(geno))
+            if(!is.null(strata)) { # E is not continuous
+              #freq_strata <- apply(geno,2,function(x) range(tapply(x,strata,mean,na.rm=TRUE)/2))
+              freq.tmp <- sapply(strata.list, function(x) colMeans(geno[x, , drop = FALSE], na.rm = TRUE)/2)
+              if (length(dim(freq.tmp)) == 2) freq_strata <- apply(freq.tmp, 1, range) else freq_strata <- as.matrix(range(freq.tmp))
+              AF.strata.min <- freq_strata[1,]
+              AF.strata.max <- freq_strata[2,]
+            }
+
+            if(center) geno <- scale(geno, scale = FALSE)
+
+            miss.idx <- which(is.na(geno))
+            if(length(miss.idx)>0) {
+              geno[miss.idx] <- if(!center & missing.method == "impute2mean") colMeans(geno, na.rm = TRUE)[ceiling(miss.idx/nrow(geno))] else 0
+            }
+
+            K <- do.call(cbind, sapply((1+qi):ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
+            if(!is.null(interaction.covariates)) {
+              geno <- cbind(geno, do.call(cbind, sapply(1:qi, function(xx) geno*E[,xx], simplify = FALSE), envir = environment()))
+            }
+
+            U <- as.vector(crossprod(geno, residuals))
+            if(!is.null(null.obj$P)) {
+              PG <- crossprod(null.obj$P, geno)
+            } else {
+              GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
+              PG <- crossprod(as.matrix(null.obj$Sigma_i), geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
+            }
+
+
+            GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1+qi, 1+qi) %x% diag(ng))
+            GPG_i <- try(solve(GPG), silent = TRUE)
+            if(class(GPG_i) == "try-error") GPG_i <- MASS::ginv(GPG)
+            if(is.null(interaction.covariates)) {
+              V_i <- diag(GPG_i)
+            } else {
+              V <- diag(GPG)[1:ng]
+              V_i <- ifelse(V < .Machine$double.eps, 0, 1/V)
+            }
+            BETA.MAIN <- V_i * U[1:ng]
+            SE.MAIN <- sqrt(V_i)
+            STAT.MAIN <- BETA.MAIN * U[1:ng]
+            PVAL.MAIN <- ifelse(V_i>0, pchisq(STAT.MAIN, df=1, lower.tail=FALSE), NA)
+
+            if(!is.null(null.obj$P)) {
+              KPK <- crossprod(K,crossprod(null.obj$P,K))
+            } else {
+              KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
+              KPK <- crossprod(K, crossprod(as.matrix(null.obj$Sigma_i), K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
+            }
+            KPK <- as.matrix(KPK) * (matrix(1, ei, ei) %x% diag(ng))
+            KPG <- as.matrix(crossprod(K,PG)) * (matrix(1, ei, 1+qi) %x% diag(ng))
+
+            if(!is.null(interaction.covariates)) {
+              IV.U <- (rep(1, ei) %x% diag(ng)) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(crossprod(GPG_i, U))))
+              IV.V_i <- try(solve(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i))), silent = TRUE)
+              if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
+              STAT.INT <- diag(crossprod(IV.U, crossprod(IV.V_i, IV.U)))
+              PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
+              PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.MAIN + STAT.INT, df=1+ei, lower.tail=FALSE))
+
+            } else {
+              IV.U <- (rep(1, ei) %x% diag(ncol(geno))) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(BETA.MAIN)))
+              IV.V_i <- try(solve(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i))), silent = TRUE)
+              if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
+              STAT.INT <- diag(crossprod(IV.U, crossprod(IV.V_i, IV.U)))
+              PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
+              PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.MAIN + STAT.INT, df=1+ei, lower.tail=FALSE))
+            }
+            return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN, PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+          })
+          tmp.out <- matrix(unlist(tmp.out), ncol = 9, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
+          out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N"], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")])
+          names(out)[6] <- "N"
+          rm(tmp.out)
+          if(b == 1) {
+            write.table(out, outfile, quote=FALSE, row.names=FALSE, col.names=(ii == 1), sep="\t", append=(ii > 1), na=".")
+          } else {
+            write.table(out, paste0(outfile, "_tmp.", b), quote=FALSE, row.names=FALSE, col.names=FALSE, sep="\t", append=(ii > 1), na=".")
+          }
+          rm(out)
+        }
+        SeqArray::seqClose(gds)
+      }
+      for(b in 2:ncores) {
+        system(paste0("cat ", outfile, "_tmp.", b, " >> ", outfile))
+        unlink(paste0(outfile, "_tmp.", b))
+      }
+    } else { # use a single core
+      variant.idx <- variant.idx.all
+      rm(variant.idx.all)
       p <- length(variant.idx)
       gds <- SeqArray::seqOpen(geno.file)
       SeqArray::seqSetFilter(gds, sample.id = sample.id, verbose = FALSE)
@@ -78,7 +236,10 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, center=T, MAF.ra
         tmp.out <- lapply(1:((tmp.p-1) %/% nperbatch + 1), function(j) {
           tmp2.variant.idx <- if(j == (tmp.p-1) %/% nperbatch + 1) tmp.variant.idx[((j-1)*nperbatch+1):tmp.p] else tmp.variant.idx[((j-1)*nperbatch+1):(j*nperbatch)]
           SeqArray::seqSetFilter(gds, variant.id = tmp2.variant.idx, verbose = FALSE)
-          geno <- SeqVarTools::altDosage(gds, use.names = FALSE)
+
+  	      geno <- SeqVarTools::altDosage(gds, use.names = FALSE)
+  	      ng <- ncol(geno)
+
           N <- nrow(geno) - colSums(is.na(geno))
           AF.strata.min <- AF.strata.max <- rep(NA, ncol(geno))
           if(!is.null(strata)) { # E is not continuous
@@ -88,140 +249,161 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, center=T, MAF.ra
             AF.strata.min <- freq_strata[1,]
             AF.strata.max <- freq_strata[2,]
           }
+
           if(center) geno <- scale(geno, scale = FALSE)
           miss.idx <- which(is.na(geno))
           if(length(miss.idx)>0) {
             geno[miss.idx] <- if(!center & missing.method == "impute2mean") colMeans(geno, na.rm = TRUE)[ceiling(miss.idx/nrow(geno))] else 0
           }
+
+          K <- do.call(cbind, sapply((1+qi):ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
+  	      if(!is.null(interaction.covariates)) {
+  	  	    geno <- cbind(geno, do.call(cbind, sapply(1:qi, function(xx) geno*E[,xx], simplify = FALSE), envir = environment()))
+  	      }
+
           U <- as.vector(crossprod(geno, residuals))
-          if(!is.null(null.obj$P)) PG <- crossprod(null.obj$P, geno)
-          else {
+          if(!is.null(null.obj$P)) {
+            PG <- crossprod(null.obj$P, geno)
+          } else {
             GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
-            PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
+            PG <- crossprod(as.matrix(null.obj$Sigma_i), geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
           }
-          V <- diag(crossprod(geno, PG))
-          V_i <- ifelse(V < .Machine$double.eps, 0, 1/V)
-          BETA.MAIN <- V_i * U
+
+          GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1+qi, 1+qi) %x% diag(ng))
+          GPG_i <- try(solve(GPG), silent = TRUE)
+          if(class(GPG_i) == "try-error") GPG_i <- MASS::ginv(GPG)
+          if(is.null(interaction.covariates)) {
+            V_i <- diag(GPG_i)
+          } else {
+            V <- diag(GPG)[1:ng]
+            V_i <- ifelse(V < .Machine$double.eps, 0, 1/V)
+          }
+          BETA.MAIN <- V_i * U[1:ng]
           SE.MAIN <- sqrt(V_i)
-          PVAL.MAIN <- ifelse(V_i>0, pchisq(BETA.MAIN * U, df=1, lower.tail=FALSE), NA)
-          K <- do.call(cbind, sapply(1:ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
-          if(!is.null(null.obj$P)) KPK <- crossprod(K,crossprod(null.obj$P,K))
-          else {
+          STAT.MAIN <- BETA.MAIN * U[1:ng]
+          PVAL.MAIN <- ifelse(V_i>0, pchisq(STAT.MAIN, df=1, lower.tail=FALSE), NA)
+
+          if(!is.null(null.obj$P)) {
+            KPK <- crossprod(K,crossprod(null.obj$P,K))
+          } else {
             KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
-            KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
+            KPK <- crossprod(K, crossprod(as.matrix(null.obj$Sigma_i), K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
           }
-          KPK <- as.matrix(KPK) * (matrix(1, ncol(E), ncol(E)) %x% diag(ncol(geno)))
-          KPG <- as.matrix(crossprod(K,PG)) * (rep(1, ncol(E)) %x% diag(ncol(geno)))
-          IV.U <- (rep(1, ncol(E)) %x% diag(ncol(geno))) * as.vector(crossprod(K,residuals))-t(t(KPG)*BETA.MAIN)
-          IV.V_i <- try(solve(KPK - tcrossprod(KPG,t(t(KPG)*V_i))), silent = TRUE)
-          if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,t(t(KPG)*V_i)))
-          STAT.INT <- diag(crossprod(IV.U, crossprod(IV.V_i, IV.U)))
-          PVAL.INT <- pchisq(STAT.INT, df=ncol(E), lower.tail=FALSE)
-          PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(BETA.MAIN * U + STAT.INT, df=1+ncol(E), lower.tail=FALSE))
-          return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN, PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+          KPK <- as.matrix(KPK) * (matrix(1, ei, ei) %x% diag(ng))
+          KPG <- as.matrix(crossprod(K,PG)) * (matrix(1, ei, 1+qi) %x% diag(ng))
+
+          if(!is.null(interaction.covariates)) {
+            IV.U <- (rep(1, ei) %x% diag(ng)) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(crossprod(GPG_i, U))))
+            IV.V_i <- try(solve(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i))), silent = TRUE)
+            if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
+            STAT.INT <- diag(crossprod(IV.U, crossprod(IV.V_i, IV.U)))
+            PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
+            PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.MAIN + STAT.INT, df=1+ei, lower.tail=FALSE))
+
+          } else {
+            IV.U <- (rep(1, ei) %x% diag(ncol(geno))) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(BETA.MAIN)))
+            IV.V_i <- try(solve(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i))), silent = TRUE)
+            if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
+            STAT.INT <- diag(crossprod(IV.U, crossprod(IV.V_i, IV.U)))
+            PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
+            PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.MAIN + STAT.INT, df=1+ei, lower.tail=FALSE))
+          }
+
+          return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN[1:ng], SE.MAIN, PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
         })
         tmp.out <- matrix(unlist(tmp.out), ncol = 9, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
         out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N"], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")])
         names(out)[6] <- "N"
         rm(tmp.out)
-        if(b == 1) {
-          write.table(out, outfile, quote=FALSE, row.names=FALSE, col.names=(ii == 1), sep="\t", append=(ii > 1), na=".")
-        } else {
-          write.table(out, paste0(outfile, "_tmp.", b), quote=FALSE, row.names=FALSE, col.names=FALSE, sep="\t", append=(ii > 1), na=".")
-        }
+        write.table(out, outfile, quote=FALSE, row.names=FALSE, col.names=(ii == 1), sep="\t", append=(ii > 1), na=".")
         rm(out)
       }
       SeqArray::seqClose(gds)
     }
-    for(b in 2:ncores) {
-      system(paste0("cat ", outfile, "_tmp.", b, " >> ", outfile))
-      unlink(paste0(outfile, "_tmp.", b))
-    }
-  } else { # use a single core
-    variant.idx <- variant.idx.all
-    rm(variant.idx.all)
-    p <- length(variant.idx)
-    gds <- SeqArray::seqOpen(geno.file)
-    SeqArray::seqSetFilter(gds, sample.id = sample.id, verbose = FALSE)
-    rm(sample.id)
-    nbatch.flush <- (p-1) %/% 100000 + 1
-    ii <- 0
-    for(i in 1:nbatch.flush) {
-      gc()
-      tmp.variant.idx <- if(i == nbatch.flush) variant.idx[((i-1)*100000+1):p] else variant.idx[((i-1)*100000+1):(i*100000)]
-      SeqArray::seqSetFilter(gds, variant.id = tmp.variant.idx, verbose = FALSE)
-      MISSRATE <- SeqVarTools::missingGenotypeRate(gds, margin = "by.variant")
-      AF <- 1 - SeqVarTools::alleleFrequency(gds)
-      include <- (MISSRATE <= miss.cutoff & ((AF >= MAF.range[1] & AF <= MAF.range[2]) | (AF >= 1-MAF.range[2] & AF <= 1-MAF.range[1])))
-      if(sum(include) == 0) next
-      ii <- ii + 1
-      tmp.variant.idx <- tmp.variant.idx[include]
-      tmp.p <- length(tmp.variant.idx)
-      SeqArray::seqSetFilter(gds, variant.id = tmp.variant.idx, verbose = FALSE)
-      SNP <- SeqArray::seqGetData(gds, "annotation/id")
-      SNP[SNP == ""] <- NA
-      out <- data.frame(SNP = SNP, CHR = SeqArray::seqGetData(gds, "chromosome"), POS = SeqArray::seqGetData(gds, "position"))
-      rm(SNP)
-      alleles.list <- strsplit(SeqArray::seqGetData(gds, "allele"), ",")
-      out$REF <- unlist(lapply(alleles.list, function(x) x[1]))
-      out$ALT <- unlist(lapply(alleles.list, function(x) paste(x[-1], collapse=",")))
-      out$MISSRATE <- MISSRATE[include]
-      out$AF <- AF[include]
-      rm(alleles.list, include)
-      tmp.out <- lapply(1:((tmp.p-1) %/% nperbatch + 1), function(j) {
-        tmp2.variant.idx <- if(j == (tmp.p-1) %/% nperbatch + 1) tmp.variant.idx[((j-1)*nperbatch+1):tmp.p] else tmp.variant.idx[((j-1)*nperbatch+1):(j*nperbatch)]
-        SeqArray::seqSetFilter(gds, variant.id = tmp2.variant.idx, verbose = FALSE)
-        geno <- SeqVarTools::altDosage(gds, use.names = FALSE)
-        N <- nrow(geno) - colSums(is.na(geno))
-        AF.strata.min <- AF.strata.max <- rep(NA, ncol(geno))
-        if(!is.null(strata)) { # E is not continuous
-          #freq_strata <- apply(geno,2,function(x) range(tapply(x,strata,mean,na.rm=TRUE)/2))
-          freq.tmp <- sapply(strata.list, function(x) colMeans(geno[x, , drop = FALSE], na.rm = TRUE)/2)
-          if (length(dim(freq.tmp)) == 2) freq_strata <- apply(freq.tmp, 1, range) else freq_strata <- as.matrix(range(freq.tmp))
-          AF.strata.min <- freq_strata[1,]
-          AF.strata.max <- freq_strata[2,]
-        }
-        if(center) geno <- scale(geno, scale = FALSE)
-        miss.idx <- which(is.na(geno))
-        if(length(miss.idx)>0) {
-          geno[miss.idx] <- if(!center & missing.method == "impute2mean") colMeans(geno, na.rm = TRUE)[ceiling(miss.idx/nrow(geno))] else 0
-        }
-        U <- as.vector(crossprod(geno, residuals))
-        if(!is.null(null.obj$P)) PG <- crossprod(null.obj$P, geno)
-        else {
-          GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
-          PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
-        }
-        V <- diag(crossprod(geno, PG))
-        V_i <- ifelse(V < .Machine$double.eps, 0, 1/V)
-        BETA.MAIN <- V_i * U
-        SE.MAIN <- sqrt(V_i)
-        PVAL.MAIN <- ifelse(V_i>0, pchisq(BETA.MAIN * U, df=1, lower.tail=FALSE), NA)
-        K <- do.call(cbind, sapply(1:ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
-        if(!is.null(null.obj$P)) KPK <- crossprod(K,crossprod(null.obj$P,K))
-        else {
-          KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
-          KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
-        }
-        KPK <- as.matrix(KPK) * (matrix(1, ncol(E), ncol(E)) %x% diag(ncol(geno)))
-        KPG <- as.matrix(crossprod(K,PG)) * (rep(1, ncol(E)) %x% diag(ncol(geno)))
-        IV.U <- (rep(1, ncol(E)) %x% diag(ncol(geno))) * as.vector(crossprod(K,residuals))-t(t(KPG)*BETA.MAIN)
-        IV.V_i <- try(solve(KPK - tcrossprod(KPG,t(t(KPG)*V_i))), silent = TRUE)
-        if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,t(t(KPG)*V_i)))
-        STAT.INT <- diag(crossprod(IV.U, crossprod(IV.V_i, IV.U)))
-        PVAL.INT <- pchisq(STAT.INT, df=ncol(E), lower.tail=FALSE)
-        PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(BETA.MAIN * U + STAT.INT, df=1+ncol(E), lower.tail=FALSE))
-        return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN, PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
-      })
-      tmp.out <- matrix(unlist(tmp.out), ncol = 9, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
-      out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N"], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")])
-      names(out)[6] <- "N"
-      rm(tmp.out)
-      write.table(out, outfile, quote=FALSE, row.names=FALSE, col.names=(ii == 1), sep="\t", append=(ii > 1), na=".")
-      rm(out)
-    }
-    SeqArray::seqClose(gds)
-  }
-  return(invisible(NULL))
-}
+    return(invisible(NULL))
+  } else if (grepl("\\.bgen$", geno.file)) {
 
+    bgenInfo <- .Call('bgenHeader', geno.file)
+
+    if (bgenInfo$SampleIdFlag == 0) {
+      if (is.null(bgen.samplefile)) {
+        stop("Error: bgen file does not contain sample identifiers. A .sample file (bgen.samplefile) is needed.")
+      }
+      sample.id <- read.table(bgen.samplefile, header = TRUE, sep = " ")
+      if ((nrow(sample.id)-1) != bgenInfo$N){
+        stop(paste0("Error: Number of sample identifiers in BGEN sample file (", nrow(sample.id)-1, ") does not match number of samples in BGEN file (", bgenInfo$N,")."))
+      }
+      sample.id <- sample.id[-1, 1]
+    } else {
+      sample.id <- bgenInfo$SampleIds
+    }
+
+    if(any(is.na(match(null.obj$id_include, sample.id)))) warning("Check your data... Some individuals in null.obj$id_include are missing in sample.id of bgen sample file!")
+    select <- match(sample.id, unique(null.obj$id_include))
+    select[is.na(select)] <- 0
+    sample.id <- sample.id[sample.id %in% null.obj$id_include]
+    if(length(sample.id) == 0) stop("Error: null.obj$id_include does not match sample.id in geno.file!")
+
+    match.id <- match(sample.id, null.obj$id_include)
+    residuals <- residuals[match.id]
+    if(!is.null(null.obj$P)) {
+      null.obj$P <- null.obj$P[match.id, match.id]
+    } else {
+      null.obj$Sigma_iX <- Matrix(null.obj$Sigma_iX[match.id, , drop = FALSE], sparse = TRUE)
+      null.obj$Sigma_i <- Matrix(null.obj$Sigma_i[match.id, match.id], sparse = TRUE)
+      null.obj$cov <- Matrix(null.obj$cov, sparse = TRUE)
+    }
+    E <- as.matrix(E[match.id, , drop = FALSE])
+    strata <- apply(E, 1, paste, collapse = ":")
+    strata <- if(length(unique(strata))>length(strata)/100) NULL else as.numeric(as.factor(strata))
+    if(!is.null(strata)) strata.list <- lapply(unique(strata), function(x) which(strata==x))
+    if (is.null(interaction.covariates)) {
+      null.obj$E <- E
+    } else {
+      null.obj$E <- E[,(qi+1):(qi+ei), drop = F]
+      null.obj$EC <- E[,1:qi, drop = F]
+    }
+    rm(sample.id, E)
+
+    variant.idx.all <- 1:bgenInfo$M
+    p.all <- length(variant.idx.all)
+
+    if (ncores > bgenInfo$M) {
+      ncores <- bgenInfo$M
+      print(paste0("Warning: number of cores (", ncores,") is greater than number of variants in BGEN files (", bgenInfo$M,"). Using ", ncores, " instead."))
+    }
+
+    threadInfo <- .Call("getVariantPos", geno.file, bgenInfo$offset, bgenInfo$M, bgenInfo$N, bgenInfo$CompressionFlag, bgenInfo$LayoutFlag, ncores)
+    center2 <- ifelse(center, 'c', 'n')
+    missing.method <- substr(missing.method, 1, 1)
+
+    if (ncores > 1) {
+      doMC::registerDoMC(cores = ncores)
+      foreach(i=1:ncores) %dopar% {
+        if (bgenInfo$LayoutFlag == 2) {
+          .Call("glmm_gei_bgen13", as.numeric(residuals), null.obj, geno.file, paste0(outfile, "_tmp.", i), center2, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, nperbatch, ei, qi, is.null(null.obj$P), is.null(interaction.covariates), select, threadInfo$begin[i], threadInfo$end[i], threadInfo$pos[i], bgenInfo$N, bgenInfo$CompressionFlag, 1)
+        } else {
+          .Call("glmm_gei_bgen11", as.numeric(residuals), null.obj, geno.file, paste0(outfile, "_tmp.", i), center2, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, nperbatch, ei, qi, is.null(null.obj$P), is.null(interaction.covariates), select, threadInfo$begin[i], threadInfo$end[i], threadInfo$pos[i], bgenInfo$N, bgenInfo$CompressionFlag, 1)
+        }
+      }
+
+      outTmp <- file(outfile, "w")
+      writeLines("SNP\tRSID\tCHR\tPOS\tREF\tALT\tN\tMISSRATE\tAF\tBETA.MAIN\tSE.MAIN\tPVAL.MAIN\tSTAT.INT\tPVAL.INT\tPVAL.JOINT\n", outTmp)
+      for(i in 1:ncores){
+        inTmp <- readLines(paste0(outfile, "_tmp.", i))
+        writeLines(inTmp, outTmp)
+        unlink(paste0(outfile, "_tmp.", i))
+      }
+      close(outTmp)
+    } else {
+
+        if (bgenInfo$LayoutFlag == 2) {
+          .Call("glmm_gei_bgen13", as.numeric(residuals), null.obj, geno.file, outfile, center2, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, nperbatch, ei, qi, is.null(null.obj$P), is.null(interaction.covariates), select, threadInfo$begin[1], threadInfo$end[1], threadInfo$pos[1], bgenInfo$N, bgenInfo$CompressionFlag, 0)
+        } else {
+          .Call("glmm_gei_bgen11", as.numeric(residuals), null.obj, geno.file, outfile, center2, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, nperbatch, ei, qi, is.null(null.obj$P), is.null(interaction.covariates), select, threadInfo$begin[1], threadInfo$end[1], threadInfo$pos[1], bgenInfo$N, bgenInfo$CompressionFlag, 0)
+        }
+
+    }
+    return(invisible(NULL))
+  }
+}

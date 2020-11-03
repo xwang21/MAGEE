@@ -1,3 +1,4 @@
+import(Rcpp)
 import(Matrix) 
 import(foreach)
 import(parallel)
@@ -9,5 +10,8 @@ importFrom("CompQuadForm", "davies", "liu")
 importFrom("SeqArray", "seqOpen", "seqGetData", "seqClose", "seqSetFilter")
 importFrom("SeqVarTools", "missingGenotypeRate", "alleleFrequency", "altDosage")
 importFrom("GMMAT", "glmmkin")
+
+useDynLib(MAGEE, .registration = TRUE, .fixes = "C_")
+
 export(MAGEE, glmm.gei)
 

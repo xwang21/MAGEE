@@ -4,7 +4,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
     ncores <- 1
   }
 
-  if(!grepl("\\.gds$", geno.file) & !grepl("\\.bgen$", geno.file)) stop("Error: only .gds and .bgen format is supported in geno.file!")
+  if(!grepl("\\.gds$|\\.bgen$", geno.file[1])) stop("Error: only .gds and .bgen format is supported in geno.file!")
 
   missing.method <- try(match.arg(missing.method, c("impute2mean", "omit")))
   if(class(missing.method) == "try-error") stop("Error: \"missing.method\" must be \"impute2mean\" or \"omit\".")
@@ -50,8 +50,12 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
 
   ncores <- min(c(ncores, parallel::detectCores(logical = TRUE)))
 
-  if(grepl("\\.gds$", geno.file)) {
-    gds <- SeqArray::seqOpen(geno.file)
+  if(grepl("\\.gds$", geno.file[1])) {
+    if (class(geno.file)[1] != "SeqVarGDSClass") {
+      gds <- SeqArray::seqOpen(geno.file) 
+    } else {
+      gds <- geno.file
+    }
     sample.id <- SeqArray::seqGetData(gds, "sample.id")
     if(any(is.na(match(null.obj$id_include, sample.id)))) warning("Check your data... Some individuals in null.obj$id_include are missing in sample.id of geno.file!")
     sample.id <- sample.id[sample.id %in% null.obj$id_include]
@@ -69,7 +73,9 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
     strata <- if(length(unique(strata))>length(strata)/100) NULL else as.numeric(as.factor(strata))
     if(!is.null(strata)) strata.list <- lapply(unique(strata), function(x) which(strata==x))
     variant.idx.all <- SeqArray::seqGetData(gds, "variant.id")
-    SeqArray::seqClose(gds)
+    if (class(geno.file)[1] != "SeqVarGDSClass") {
+      SeqArray::seqClose(gds)
+    }
     p.all <- length(variant.idx.all)
 
     if(ncores > 1) {
@@ -79,7 +85,11 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
       foreach(b=1:ncores, .inorder=FALSE, .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
         variant.idx <- if(b <= n.p.percore_1) variant.idx.all[((b-1)*(p.percore-1)+1):(b*(p.percore-1))] else variant.idx.all[(n.p.percore_1*(p.percore-1)+(b-n.p.percore_1-1)*p.percore+1):(n.p.percore_1*(p.percore-1)+(b-n.p.percore_1)*p.percore)]
         p <- length(variant.idx)
-        gds <- SeqArray::seqOpen(geno.file)
+        if (class(geno.file)[1] != "SeqVarGDSClass") {
+          gds <- SeqArray::seqOpen(geno.file)
+        } else {
+          gds <- geno.file
+        }
         SeqArray::seqSetFilter(gds, sample.id = sample.id, verbose = FALSE)
         rm(sample.id)
         nbatch.flush <- (p-1) %/% 100000 + 1
@@ -196,7 +206,9 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
           }
           rm(out)
         }
-        SeqArray::seqClose(gds)
+        if (class(geno.file)[1] != "SeqVarGDSClass") {
+          SeqArray::seqClose(gds)
+        }
       }
       for(b in 2:ncores) {
         system(paste0("cat ", outfile, "_tmp.", b, " >> ", outfile))
@@ -206,7 +218,9 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
       variant.idx <- variant.idx.all
       rm(variant.idx.all)
       p <- length(variant.idx)
-      gds <- SeqArray::seqOpen(geno.file)
+      if (class(geno.file)[1] != "SeqVarGDSClass") {
+        gds <- SeqArray::seqOpen(geno.file)
+      }
       SeqArray::seqSetFilter(gds, sample.id = sample.id, verbose = FALSE)
       rm(sample.id)
       nbatch.flush <- (p-1) %/% 100000 + 1
@@ -318,7 +332,9 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
         write.table(out, outfile, quote=FALSE, row.names=FALSE, col.names=(ii == 1), sep="\t", append=(ii > 1), na=".")
         rm(out)
       }
-      SeqArray::seqClose(gds)
+      if (class(geno.file)[1] != "SeqVarGDSClass") {
+        SeqArray::seqClose(gds)
+      }
     }
     return(invisible(NULL))
   } else if (grepl("\\.bgen$", geno.file)) {

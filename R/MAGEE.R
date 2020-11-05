@@ -1,10 +1,10 @@
-MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep = "\t",  bgen.samplefile = NULL, meta.file.prefix = NULL, MAF.range = c(1e-7, 0.5), MAF.weights.beta = c(1, 25), miss.cutoff = 1, missing.method = "impute2mean", method = "davies", tests = "JF", use.minor.allele = FALSE, auto.flip = FALSE, Garbage.Collection = FALSE, is.dosage = FALSE, ncores = 1){
+MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep = "\t", meta.file.prefix = NULL, MAF.range = c(1e-7, 0.5), MAF.weights.beta = c(1, 25), miss.cutoff = 1, missing.method = "impute2mean", method = "davies", tests = "JF", use.minor.allele = FALSE, auto.flip = FALSE, Garbage.Collection = FALSE, is.dosage = FALSE, ncores = 1){
   if(Sys.info()["sysname"] == "Windows" && ncores > 1) {
     warning("The package doMC is not available on Windows... Switching to single thread...")
     ncores <- 1
   }
+  if(!grepl("\\.gds$|\\.bgen$", geno.file[1])) stop("Error: only .gds and .bgen format is supported in geno.file!")
   if(!class(null.obj) %in% c("glmmkin", "glmmkin.multi")) stop("Error: null.obj must be a class glmmkin or glmmkin.multi object!")
-  if(!grepl("\\.gds$|\\.bgen$", geno.file)) stop("Error: only .gds and .bgen format is supported in geno.file!")
   n.pheno <- null.obj$n.pheno
   missing.method <- try(match.arg(missing.method, c("impute2mean", "impute2zero")))
   if(class(missing.method) == "try-error") stop("Error: \"missing.method\" must be \"impute2mean\" or \"impute2zero\".")
@@ -20,9 +20,8 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
   if(any(duplicated(null.obj$id_include))) {
     J <- Matrix(sapply(unique(null.obj$id_include), function(x) 1*(null.obj$id_include==x)), sparse = TRUE)
     residuals <- as.numeric(as.matrix(crossprod(J, null.obj$scaled.residuals)))
-    if(!is.null(null.obj$P)) {
-      null.obj$P <- as.matrix(crossprod(J, crossprod(null.obj$P, J)))
-    } else {
+    if(!is.null(null.obj$P)) null.obj$P <- as.matrix(crossprod(J, crossprod(null.obj$P, J)))
+    else {
       null.obj$Sigma_iX <- crossprod(J, null.obj$Sigma_iX)
       null.obj$Sigma_i <- forceSymmetric(crossprod(J,crossprod(null.obj$Sigma_i,J)))
       null.obj$Sigma_i <- Matrix(null.obj$Sigma_i, sparse = TRUE)
@@ -30,14 +29,22 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
     rm(J)
   } else residuals <- null.obj$scaled.residuals
   n <- length(unique(null.obj$id_include))
-  if(class(interaction)=="character") E <- as.matrix(null.obj$X[,which(colnames(null.obj$X) %in% interaction)])
-  else E <- as.matrix(null.obj$X[,interaction+1])
+  if(class(interaction)=="character") {
+    E <- as.matrix(null.obj$X[,which(colnames(null.obj$X) %in% interaction)])
+  } else {
+    E <- as.matrix(null.obj$X[,interaction+1])
+  }
   interaction <- as.character(interaction)
   n.E <- as.numeric(dim(E)[2])
   E <- scale(E, scale = FALSE)
+  if(grepl("\\.gds$", geno.file[1])){
+    
+    if (class(geno.file)[1] != "SeqVarGDSClass") {
+      gds <- SeqArray::seqOpen(geno.file) 
+    } else {
+      gds <- geno.file
+    }
 
-  if (grepl("\\.gds$", geno.file)){
-    gds <- SeqArray::seqOpen(geno.file)
     sample.id <- SeqArray::seqGetData(gds, "sample.id")
     if(any(is.na(match(null.obj$id_include, sample.id)))) warning("Check your data... Some individuals in null.obj$id_include are missing in sample.id of geno.file!")
     sample.id <- sample.id[sample.id %in% null.obj$id_include]
@@ -50,8 +57,9 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
     } else {
       residuals <- residuals[match.id]
     }
-    if(!is.null(null.obj$P)) null.obj$P <- null.obj$P[match.id, match.id]
-    else {
+    if(!is.null(null.obj$P)) {
+      null.obj$P <- null.obj$P[match.id, match.id]
+    } else {
       null.obj$Sigma_iX <- null.obj$Sigma_iX[match.id, , drop = FALSE]
       null.obj$Sigma_i <- null.obj$Sigma_i[match.id, match.id]
     }
@@ -65,7 +73,9 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
     ref <- unlist(lapply(alleles.list, function(x) x[1]))
     alt <- unlist(lapply(alleles.list, function(x) paste(x[-1], collapse=",")))
     rm(alleles.list); gc()
-    SeqArray::seqClose(gds)
+    if (class(geno.file)[1] != "SeqVarGDSClass") {
+      SeqArray::seqClose(gds)
+    }
     variant.id <- paste(chr, pos, ref, alt, sep = ":")
     rm(chr, pos, ref, alt); gc()
     group.info <- try(read.table(group.file, header = FALSE, col.names = c("group", "chr", "pos", "ref", "alt", "weight"), colClasses = c("character","character","integer","character","character","numeric"), sep = group.file.sep), silent = TRUE)
@@ -113,7 +123,11 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
       out <- foreach(b=1:ncores, .combine=rbind, .multicombine = TRUE, .inorder=FALSE, .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
         idx <- if(b <= n.groups.percore_1) ((b-1)*(n.groups.percore-1)+1):(b*(n.groups.percore-1)) else (n.groups.percore_1*(n.groups.percore-1)+(b-n.groups.percore_1-1)*n.groups.percore+1):(n.groups.percore_1*(n.groups.percore-1)+(b-n.groups.percore_1)*n.groups.percore)
         n.groups <- length(idx)
-        gds <- SeqArray::seqOpen(geno.file)
+        if (class(geno.file)[1] != "SeqVarGDSClass") {
+          gds <- SeqArray::seqOpen(geno.file)
+        } else {
+          gds <- geno.file
+        }
         SeqArray::seqSetFilter(gds, sample.id = sample.id, verbose = FALSE)
         n.variants <- rep(0,n.groups)
         miss.min <- rep(NA,n.groups)
@@ -255,7 +269,9 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
           rm(geno)
           if(Garbage.Collection) gc()
         }
-        SeqArray::seqClose(gds)
+        if (class(geno.file)[1] != "SeqVarGDSClass") {
+          SeqArray::seqClose(gds)
+        }
         if(!is.null(meta.file.prefix)) close(meta.file.cov.handle)
         tmp.out <- data.frame(group=unique(group.info$group)[idx], n.variants=n.variants, miss.min=miss.min, miss.mean=miss.mean, miss.max=miss.max, freq.min=freq.min, freq.mean=freq.mean, freq.max=freq.max,freq.strata.min=freq.strata.min, freq.strata.max=freq.strata.max)
         if(MV | JV) tmp.out$MV.pval <- MV.pval
@@ -269,7 +285,9 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
       }
     } else { # use a single core
       n.groups <- n.groups.all
-      gds <- SeqArray::seqOpen(geno.file)
+      if (class(geno.file)[1] != "SeqVarGDSClass") {
+        gds <- SeqArray::seqOpen(geno.file)
+      }
       SeqArray::seqSetFilter(gds, sample.id = sample.id, verbose = FALSE)
       n.variants <- rep(0,n.groups)
       miss.min <- rep(NA,n.groups)
@@ -335,8 +353,9 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
           SK <- as.vector(crossprod(K,residuals))
         }
         if(class(null.obj) == "glmmkin.multi") geno <- Diagonal(n = n.pheno) %x% geno
-        if(!is.null(null.obj$P)) PG <- crossprod(null.obj$P, geno)
-        else {
+        if(!is.null(null.obj$P)) {
+          PG <- crossprod(null.obj$P, geno)
+        } else {
           GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
           PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
         }
@@ -411,7 +430,9 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
         rm(geno, K)
         if(Garbage.Collection) gc()
       }
-      SeqArray::seqClose(gds)
+      if (class(geno.file)[1] != "SeqVarGDSClass") {
+        SeqArray::seqClose(gds)
+      }
       if(!is.null(meta.file.prefix)) close(meta.file.cov.handle)
       out <- data.frame(group=unique(group.info$group), n.variants=n.variants, miss.min=miss.min, miss.mean=miss.mean, miss.max=miss.max, freq.min=freq.min, freq.mean=freq.mean, freq.max=freq.max,freq.strata.min=freq.strata.min, freq.strata.max=freq.strata.max)
       if(MV | JV) out$MV.pval <- MV.pval
@@ -503,19 +524,19 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
     group.info <- group.info[order(group.info$group.idx, group.info$variant.idx), ]
     group.idx.end <- findInterval(1:n.groups.all, group.info$group.idx)
     group.idx.start <- c(1, group.idx.end[-n.groups.all] + 1)
-
+    
     if (ncores > n.groups.all) {
       ncores <- n.groups.all
       print(paste0("Warning: number of cores (", ncores,") is greater than number of groups (", n.groups.all,"). Using ", ncores, " instead."))
     }
-
+    
     if (ncores > 1) {
       n.groups <- n.groups.all
       weight <- group.info$weight
       group.info <- group.info[,!(colnames(group.info) %in% c("weight"))]
-
+      
       doMC::registerDoMC(cores = ncores)
-
+      
       t_idx <- split(1:n.groups.all, cut(seq_along(1:n.groups.all), ncores, labels = FALSE))
       out <- foreach(i=1:ncores, .combine = rbind, .multicombine = TRUE, .inorder=FALSE, .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
         if (bgenInfo$LayoutFlag == 2) {
@@ -530,7 +551,7 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
       weight <- group.info$weight
       group.info <- group.info[,!(colnames(group.info) %in% c("weight"))]
       out <- .Call("magee_bgen13", as.numeric(residuals), null.obj, geno.file, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, is.null(null.obj$P), n.groups, MF, MV, IF, IV, JD, JF, JV, group.info, group.idx.start, group.idx.end, weight, method, MAF.weights.beta[1], MAF.weights.beta[2], select,  bgenInfo$N, bgenInfo$CompressionFlag, 0)
-
+      
     }
     return(out)
   }
@@ -543,7 +564,7 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
     if((tmp$ifault > 0) | (pval <= 1e-5) | (pval >= 1)) method <- "kuonen"
   }
   if(method == "kuonen") {
-    pval <- .pKuonen(x = Q, lambda = lambda)
+    pval <- pKuonen(x = Q, lambda = lambda)
     if(is.na(pval)) method <- "liu"
   }
   if(method == "liu") pval <- CompQuadForm::liu(q = Q, lambda = lambda)

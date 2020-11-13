@@ -7,9 +7,9 @@ GLMM based single variant tests for gene-environment interactions
 Use a glmmkin class object from the null GLMM to perform single variant main effect score test, gene-environment interaction test, or joint test for association with genotypes in a GDS file .gds.
 }
 \usage{
-glmm.gei(null.obj, interaction, geno.file, outfile, interaction.covariates = NULL, 
-  bgen.samplefile = NULL, center=T, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, 
-  missing.method = "impute2mean", nperbatch=100, ncores = 1)
+glmm.gei(null.obj, interaction, geno.file, outfile, bgen.samplefile = NULL, 
+  interaction.covariates = NULL, center=T, MAF.range = c(1e-7, 0.5), 
+  miss.cutoff = 1, missing.method = "impute2mean", nperbatch=100, ncores = 1)
 }
 \arguments{
   \item{null.obj}{
@@ -24,11 +24,11 @@ the full name of a GDS file (including the suffix .gds).
   \item{outfile}{
 the output file name.
 }
-  \item{interaction.covariates}{
-a numeric or a character vector indicating the interaction covariates. If a numeric vector, it represents which indices in the order of covariates are the interaction covariates; if a character vector, it represents the variable names of the interaction covariates.
-}
   \item{bgen.samplefile}{
 path to the BGEN .sample file. Required when the BGEN file does not contain sample identifiers.
+}
+  \item{interaction.covariates}{
+a numeric or a character vector indicating the interaction covariates. If a numeric vector, it represents which indices in the order of covariates are the interaction covariates; if a character vector, it represents the variable names of the interaction covariates.
 }
   \item{center}{
 a logical switch for centering genotypes before tests. If TRUE, genotypes will be centered to have mean 0 before tests, otherwise raw values will be directly used in tests (default = TRUE).

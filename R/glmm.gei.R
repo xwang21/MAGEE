@@ -53,10 +53,12 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
   if(grepl("\\.gds$", geno.file[1])) {
     if (class(geno.file)[1] != "SeqVarGDSClass") {
       gds <- SeqArray::seqOpen(geno.file) 
+      sample.id <- SeqArray::seqGetData(gds, "sample.id")
+      variant.idx.all <- SeqArray::seqGetData(gds, "variant.id")
     } else {
-      gds <- geno.file
+      sample.id <- SeqArray::seqGetData(geno.file, "sample.id")
+      variant.idx.all <- SeqArray::seqGetData(geno.file, "variant.id")
     }
-    sample.id <- SeqArray::seqGetData(gds, "sample.id")
     if(any(is.na(match(null.obj$id_include, sample.id)))) warning("Check your data... Some individuals in null.obj$id_include are missing in sample.id of geno.file!")
     sample.id <- sample.id[sample.id %in% null.obj$id_include]
     if(length(sample.id) == 0) stop("Error: null.obj$id_include does not match sample.id in geno.file!")
@@ -72,7 +74,6 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
     strata <- apply(E, 1, paste, collapse = ":")
     strata <- if(length(unique(strata))>length(strata)/100) NULL else as.numeric(as.factor(strata))
     if(!is.null(strata)) strata.list <- lapply(unique(strata), function(x) which(strata==x))
-    variant.idx.all <- SeqArray::seqGetData(gds, "variant.id")
     if (class(geno.file)[1] != "SeqVarGDSClass") {
       SeqArray::seqClose(gds)
     }
@@ -101,7 +102,10 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
           MISSRATE <- SeqVarTools::missingGenotypeRate(gds, margin = "by.variant")
           AF <- 1 - SeqVarTools::alleleFrequency(gds)
           include <- (MISSRATE <= miss.cutoff & ((AF >= MAF.range[1] & AF <= MAF.range[2]) | (AF >= 1-MAF.range[2] & AF <= 1-MAF.range[1])))
-          if(sum(include) == 0) next
+          if(sum(include) == 0) {
+            write.table("", paste0(outfile, "_tmp.", b), quote=FALSE, row.names=FALSE, col.names=FALSE, sep="\t", append=(ii > 1), na=".")
+            next
+          }
           ii <- ii + 1
           tmp.variant.idx <- tmp.variant.idx[include]
           tmp.p <- length(tmp.variant.idx)
@@ -196,7 +200,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
             return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN, PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
           })
           tmp.out <- matrix(unlist(tmp.out), ncol = 9, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
-          out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N"], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")])
+          out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
           names(out)[6] <- "N"
           rm(tmp.out)
           if(b == 1) {
@@ -206,9 +210,8 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
           }
           rm(out)
         }
-        if (class(geno.file)[1] != "SeqVarGDSClass") {
-          SeqArray::seqClose(gds)
-        }
+        SeqArray::seqClose(gds)
+        
       }
       for(b in 2:ncores) {
         system(paste0("cat ", outfile, "_tmp.", b, " >> ", outfile))
@@ -220,6 +223,8 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
       p <- length(variant.idx)
       if (class(geno.file)[1] != "SeqVarGDSClass") {
         gds <- SeqArray::seqOpen(geno.file)
+      } else {
+        gds <- geno.file
       }
       SeqArray::seqSetFilter(gds, sample.id = sample.id, verbose = FALSE)
       rm(sample.id)
@@ -232,7 +237,9 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
         MISSRATE <- SeqVarTools::missingGenotypeRate(gds, margin = "by.variant")
         AF <- 1 - SeqVarTools::alleleFrequency(gds)
         include <- (MISSRATE <= miss.cutoff & ((AF >= MAF.range[1] & AF <= MAF.range[2]) | (AF >= 1-MAF.range[2] & AF <= 1-MAF.range[1])))
-        if(sum(include) == 0) next
+        if(sum(include) == 0) {
+          next
+        }
         ii <- ii + 1
         tmp.variant.idx <- tmp.variant.idx[include]
         tmp.p <- length(tmp.variant.idx)
@@ -326,7 +333,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
           return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN[1:ng], SE.MAIN, PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
         })
         tmp.out <- matrix(unlist(tmp.out), ncol = 9, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
-        out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N"], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")])
+        out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
         names(out)[6] <- "N"
         rm(tmp.out)
         write.table(out, outfile, quote=FALSE, row.names=FALSE, col.names=(ii == 1), sep="\t", append=(ii > 1), na=".")

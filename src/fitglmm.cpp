@@ -66,7 +66,7 @@ extern "C"
   
     
   SEXP glmm_gei_bgen13(SEXP res_in, SEXP nullObj_in, SEXP bgenfile_in, SEXP outfile_in, SEXP center_in, SEXP minmaf_in, SEXP maxmaf_in, SEXP missrate_in, SEXP miss_method_in, SEXP nperbatch_in, 
-                       SEXP ei_in, SEXP qi_in, SEXP isNullP_in, SEXP isNullEC_in,
+                       SEXP ei_in, SEXP qi_in, SEXP isNullP_in, SEXP isNullEC_in, SEXP strata_in,
                        SEXP select_in, SEXP begin_in, SEXP end_in, SEXP pos_in, SEXP nbgen_in, SEXP compression_in, SEXP isMultiThread_in) {
     try{
       
@@ -81,7 +81,13 @@ extern "C"
       arma::sp_mat cov;
       
       Rcpp::List null_obj(nullObj_in);
-      
+      Rcpp::List strata_list(strata_in);
+      int strataList_size = 0;
+      bool skip_strata = true;
+      if (strata_list[0]!=R_NilValue) {
+        skip_strata = false;
+        strataList_size = strata_list.size();
+      }
       arma::mat E = as<arma::mat>(null_obj["E"]);
       arma::mat EC;
       if (!isNullEC) {
@@ -147,7 +153,17 @@ extern "C"
       
       bool isMultiThread = Rcpp::as<bool>(isMultiThread_in);
       if (!isMultiThread){
-        writefile << "SNP\tRSID\tCHR\tPOS\tREF\tALT\tN\tMISSRATE\tAF\tBETA.MAIN\tSE.MAIN\tPVAL.MAIN\tSTAT.INT\tPVAL.INT\tPVAL.JOINT\n";
+        writefile << "SNP\tRSID\tCHR\tPOS\tREF\tALT\tN\tMISSRATE\tAF\tAF.strata.min\tAF.strata.max\tBETA.MAIN\tSE.MAIN\t";
+        
+        for (int e = 1; e <= ei; e++) {
+          writefile << "BETA.INT." << e << "\t";
+        }
+        for (int e = 1; e <= ei; e++) {
+          for (int ee = 1; ee <= ei; ee++) {
+            writefile << "VAR.INT." << e << "." << ee << "\t";
+          }
+        }
+        writefile << "PVAL.MAIN\tSTAT.INT\tPVAL.INT\tPVAL.JOINT\n";
       }
       
       int ret;
@@ -324,22 +340,39 @@ extern "C"
            
          }
        }
-        
-       gmean/=(double)(n-nmiss);
-       for (size_t j=0; j<n; ++j) {
-        if (gmiss[j]==1) {
-          g[j] = gmean;
-          if (center=='n' && miss_method=='o') {g[j] = 0.0;} // remove missing genotypes
-        }
-        if (center=='c') {
-          g[j] -= gmean;
-        }
-       }
+      
 
-       gmean /= 2.0; // convert mean to allele freq
-       writeout << snpID << "\t" << rsID << "\t" << chrStr << "\t" << physpos_tmp << "\t" << allele1 << "\t" << allele0 << "\t" << (n-nmiss) << "\t" << (n-nmiss)/n << "\t"<< gmean << "\t";
+       gmean/=(double)(n-nmiss);
+       double missRate = nmiss / (double)(n * 1.0);
+       
+       if (skip_strata) {
+         writeout << snpID << "\t" << rsID << "\t" << chrStr << "\t" << physpos_tmp << "\t" << allele1 << "\t" << allele0 << "\t" << (n-nmiss) << "\t" << missRate << "\t"<< gmean/2.0 << "\t" << "NA\tNA\t";
+       } else {
+         std::vector<double> strata_range(strataList_size);
+         for (int strata_idx = 0; strata_idx < strataList_size; strata_idx++) {
+           uvec strata_tmp = as<arma::uvec>(strata_list[strata_idx]);
+           uvec strata_gmiss = gmiss.elem(strata_tmp-1);
+           vec strata_g = g.elem(strata_tmp-1);
+           strata_range[strata_idx] = mean(strata_g.elem(find(strata_gmiss == 0))) / 2.0;
+         }
+         double strata_min = *min_element(strata_range.begin(), strata_range.end());
+         double strata_max = *max_element(strata_range.begin(), strata_range.end());
+         writeout << snpID << "\t" << rsID << "\t" << chrStr << "\t" << physpos_tmp << "\t" << allele1 << "\t" << allele0 << "\t" << (n-nmiss) << "\t" << missRate << "\t"<< gmean/2.0 << "\t" << strata_min << "\t" << strata_max << "\t";
+       }
+       
        tmpout[npbidx] = writeout.str();
        writeout.clear();
+       
+       for (size_t j=0; j<n; ++j) {
+         if (gmiss[j]==1) {
+           g[j] = gmean;
+           if (center=='n' && miss_method=='o') {g[j] = 0.0;} // remove missing genotypes
+         }
+         if (center=='c') {
+           g[j] -= gmean;
+         }
+       }
+       gmean /= 2.0; // convert mean to allele freq
        if((gmax-gmin<tol) || ((double)nmiss/n>missrate) || ((gmean<minmaf || gmean>maxmaf) && (gmean<1-maxmaf || gmean>1-minmaf))) { // monomorphic, missrate, MAF
         snp_skip[npbidx] = 1;
        } else {
@@ -355,6 +388,8 @@ extern "C"
        vec STAT_MAIN;
        vec STAT_INT;
        vec SE_MAIN;
+       mat BETA_INT;
+  
        if((m+1 == end) || (npbidx == npb)) {
           
         
@@ -365,8 +400,10 @@ extern "C"
          }
          G = G.cols(snp_idx);
          
+         int ng = 0;
          if (G.n_cols != 0) {
-           int ng = G.n_cols;
+           ng = G.n_cols;
+           
            mat K;
            for (int ei_idx = 0; ei_idx < ei; ei_idx++) {
               mat tmpK = G.each_col() % E.col(ei_idx);
@@ -422,38 +459,62 @@ extern "C"
             
             KPK = KPK % kron(ones(ei, ei), mat(ng, ng, fill::eye));
             mat KPG = (K.t() * PG) % kron(ones(ei, 1+qi), mat(ng, ng, fill::eye));
+          
             if (isNullEC) {
               mat IV_U_kron = kron(ones(ei,1), mat(ng, ng, fill::eye));
               IV_U = IV_U_kron.each_col() % ((K.t() * res) - (KPG * BETA_MAIN));
               IV_V_i = inv(KPK - (KPG * (KPG * GPG_i.t()).t()));
-              STAT_INT = diagvec(IV_U.t() * (IV_V_i.t() * IV_U));
+              BETA_INT = (IV_V_i.t() * IV_U);
+              STAT_INT = diagvec(IV_U.t() * BETA_INT);
               
             } else {
               mat IV_U_kron = kron(ones(ei,1), mat(ng, ng, fill::eye));
               IV_U = IV_U_kron.each_col() % ((K.t() * res) - (KPG * (GPG_i.t() * U)));
               IV_V_i = inv(KPK - (KPG * (KPG * GPG_i.t()).t()));
-              STAT_INT = diagvec(IV_U.t() * (IV_V_i.t() * IV_U));
+              BETA_INT = (IV_V_i.t() * IV_U);
+              STAT_INT = diagvec(IV_U.t() * BETA_INT);
             }
           
          }
-               
+          
+         uvec b_idx = regspace<uvec>(0, ng, (ei-1) * ng);
+         
          int p_idx = 0;
          for(size_t j=0; j<npbidx; ++j) {
            if(snp_skip[j] == 1) { // monomorphic, missrate, MAF
-             writefile << tmpout[j] << "NA\tNA\tNA\tNA\tNA\tNA\n";
+             writefile << tmpout[j] << "NA\tNA\tNA\tNA\tNA\tNA";
+             for (int e=0; e < (ei + (ei*ei)); e++) {
+               writefile << "\tNA";
+             }
+             writefile << "\n";
            } 
            else {
-            if (V_i[j] > 0) {
-              double p_m = Rf_pchisq(STAT_MAIN[p_idx], 1, 0, 0);
-              double p_i = Rf_pchisq(STAT_INT[p_idx], ei, 0, 0);
-              double p_j = Rf_pchisq(STAT_MAIN[p_idx] + STAT_INT[p_idx], 1+ei, 0, 0);
-              writefile << tmpout[j] << BETA_MAIN[p_idx] << "\t" << SE_MAIN[p_idx] << "\t" << p_m << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << p_j << "\n";
-            } 
-            else {
-              double p_i = Rf_pchisq(STAT_INT[j], ei, 0, 0);
-              writefile << tmpout[j] << BETA_MAIN[p_idx] << "\t" << SE_MAIN[p_idx] << "\t" << "NA" << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << "NA" << "\n";
-            }
-            p_idx++;
+             writefile << tmpout[j] << BETA_MAIN[p_idx] << "\t" << SE_MAIN[p_idx] << "\t";
+
+             for (int b=0; b < ei; b++) {
+               int row = b_idx[b] + p_idx;
+               writefile << BETA_INT(row, p_idx) << "\t";
+             }
+             
+             for (int b=0; b < ei; b++) {
+               int col = b_idx[b] + p_idx;
+               for (int d=0; d < ei; d++) {
+                 int row = b_idx[d] + p_idx;
+                 writefile << IV_V_i(row, col) << "\t";
+               }
+             }
+             
+             if (V_i[j] > 0) {
+               double p_m = Rf_pchisq(STAT_MAIN[p_idx], 1, 0, 0);
+               double p_i = Rf_pchisq(STAT_INT[p_idx], ei, 0, 0);
+               double p_j = Rf_pchisq(STAT_MAIN[p_idx] + STAT_INT[p_idx], 1+ei, 0, 0);
+               writefile << p_m << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << p_j << "\n";
+             } 
+             else {
+               double p_i = Rf_pchisq(STAT_INT[j], ei, 0, 0);
+               writefile  << "NA" << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << "NA" << "\n";
+             }
+             p_idx++;
            }
          }
           
@@ -486,7 +547,7 @@ extern "C"
   }  
   
   SEXP glmm_gei_bgen11(SEXP res_in, SEXP nullObj_in, SEXP bgenfile_in, SEXP outfile_in, SEXP center_in, SEXP minmaf_in, SEXP maxmaf_in, SEXP missrate_in, SEXP miss_method_in, SEXP nperbatch_in, 
-                       SEXP ei_in, SEXP qi_in, SEXP isNullP_in, SEXP isNullEC_in,
+                       SEXP ei_in, SEXP qi_in, SEXP isNullP_in, SEXP isNullEC_in, SEXP strata_in,
                        SEXP select_in, SEXP begin_in, SEXP end_in, SEXP pos_in, SEXP nbgen_in, SEXP compression_in, SEXP isMultiThread_in) {
     try{
       
@@ -501,7 +562,13 @@ extern "C"
       arma::sp_mat cov;
       
       Rcpp::List null_obj(nullObj_in);
-      
+      Rcpp::List strata_list(strata_in);
+      int strataList_size = 0;
+      bool skip_strata = true;
+      if (strata_list[0]!=R_NilValue) {
+        skip_strata = false;
+        strataList_size = strata_list.size();
+      }
       arma::mat E = as<arma::mat>(null_obj["E"]);
       arma::mat EC;
       if (!isNullEC) {
@@ -573,7 +640,17 @@ extern "C"
       bool isMultiThread = Rcpp::as<bool>(isMultiThread_in);
       
       if (!isMultiThread){
-        writefile << "SNP\tRSID\tCHR\tPOS\tA1\tA2\tN\tAF\tSCORE\tVAR\tPVAL\n";
+        writefile << "SNP\tRSID\tCHR\tPOS\tREF\tALT\tN\tMISSRATE\tAF\tAF.strata.min\tAF.strata.max\tBETA.MAIN\tSE.MAIN\t";
+        
+        for (int e = 1; e <= ei; e++) {
+          writefile << "BETA.INT." << e << "\t";
+        }
+        for (int e = 1; e <= ei; e++) {
+          for (int ee = 1; ee <= ei; ee++) {
+            writefile << "VAR.INT." << e << "." << ee << "\t";
+          }
+        }
+        writefile << "PVAL.MAIN\tSTAT.INT\tPVAL.INT\tPVAL.JOINT\n";
       }
       
       int ret;
@@ -659,6 +736,25 @@ extern "C"
         }
         
         gmean/=(double)(n-nmiss);
+        double missRate = nmiss / (double)(n * 1.0);
+        
+        if (skip_strata) {
+          writeout << snpID << "\t" << rsID << "\t" << chrStr << "\t" << physpos_tmp << "\t" << allele1 << "\t" << allele0 << "\t" << (n-nmiss) << "\t" << missRate << "\t"<< gmean/2.0 << "\t" << "NA\tNA\t";
+        } else {
+          std::vector<double> strata_range(strataList_size);
+          for (int strata_idx = 0; strata_idx < strataList_size; strata_idx++) {
+            uvec strata_tmp = as<arma::uvec>(strata_list[strata_idx]);
+            uvec strata_gmiss = gmiss.elem(strata_tmp-1);
+            vec strata_g = g.elem(strata_tmp-1);
+            strata_range[strata_idx] = mean(strata_g.elem(find(strata_gmiss == 0))) / 2.0;
+          }
+          double strata_min = *min_element(strata_range.begin(), strata_range.end());
+          double strata_max = *max_element(strata_range.begin(), strata_range.end());
+          writeout << snpID << "\t" << rsID << "\t" << chrStr << "\t" << physpos_tmp << "\t" << allele1 << "\t" << allele0 << "\t" << (n-nmiss) << "\t" << missRate << "\t"<< gmean/2.0 << "\t" << strata_min << "\t" << strata_max << "\t";
+        }
+        
+        tmpout[npbidx] = writeout.str();
+        writeout.clear();
         
         for (size_t j=0; j<n; ++j) {
           if (gmiss[j]==1) {
@@ -671,16 +767,13 @@ extern "C"
         }
         
         gmean /= 2.0; // convert mean to allele freq
-        writeout << snpID << "\t" << rsID << "\t" << chrStr << "\t" << physpos_tmp << "\t" << allele1 << "\t" << allele0 << "\t" << (n-nmiss) << "\t" << (nmiss/n) << "\t";
-        tmpout[npbidx] = writeout.str();
-        writeout.clear();
         if((gmax-gmin<tol) || ((double)nmiss/n>missrate) || ((gmean<minmaf || gmean>maxmaf) && (gmean<1-maxmaf || gmean>1-minmaf))) { // monomorphic, missrate, MAF
           snp_skip[npbidx] = 1;
         } else {
           G.col(npbidx) = g;
         }
-        npbidx++;
         
+        npbidx++;
         
         vec V_i;
         mat IV_U;
@@ -689,6 +782,8 @@ extern "C"
         vec STAT_MAIN;
         vec STAT_INT;
         vec SE_MAIN;
+        mat BETA_INT;
+        
         if((m+1 == end) || (npbidx == npb)) {
           
           
@@ -699,8 +794,10 @@ extern "C"
           }
           G = G.cols(snp_idx);
           
+          int ng = 0;
           if (G.n_cols != 0) {
-            int ng = G.n_cols;
+            ng = G.n_cols;
+            
             mat K;
             for (int ei_idx = 0; ei_idx < ei; ei_idx++) {
               mat tmpK = G.each_col() % E.col(ei_idx);
@@ -748,7 +845,7 @@ extern "C"
             mat KPK;
             
             if (!isNullP) {
-              KPK = K.t() * (P.t(), K);
+              KPK = K.t() * (P.t() * K);
             } else {
               mat KSigma_iX = K.t() * Sigma_iX;
               KPK = (K.t() * (Sigma_i.t() * K)) - (KSigma_iX * (KSigma_iX * cov.t()).t());
@@ -756,36 +853,60 @@ extern "C"
             
             KPK = KPK % kron(ones(ei, ei), mat(ng, ng, fill::eye));
             mat KPG = (K.t() * PG) % kron(ones(ei, 1+qi), mat(ng, ng, fill::eye));
+            
             if (isNullEC) {
               mat IV_U_kron = kron(ones(ei,1), mat(ng, ng, fill::eye));
               IV_U = IV_U_kron.each_col() % ((K.t() * res) - (KPG * BETA_MAIN));
               IV_V_i = inv(KPK - (KPG * (KPG * GPG_i.t()).t()));
-              STAT_INT = diagvec(IV_U.t() * (IV_V_i.t() * IV_U));
+              BETA_INT = (IV_V_i.t() * IV_U);
+              STAT_INT = diagvec(IV_U.t() * BETA_INT);
               
             } else {
               mat IV_U_kron = kron(ones(ei,1), mat(ng, ng, fill::eye));
               IV_U = IV_U_kron.each_col() % ((K.t() * res) - (KPG * (GPG_i.t() * U)));
               IV_V_i = inv(KPK - (KPG * (KPG * GPG_i.t()).t()));
-              STAT_INT = diagvec(IV_U.t() * (IV_V_i.t() * IV_U));
+              BETA_INT = (IV_V_i.t() * IV_U);
+              STAT_INT = diagvec(IV_U.t() * BETA_INT);
             }
             
           }
           
+          uvec b_idx = regspace<uvec>(0, ng, (ei-1) * ng);
+          
           int p_idx = 0;
           for(size_t j=0; j<npbidx; ++j) {
             if(snp_skip[j] == 1) { // monomorphic, missrate, MAF
-              writefile << tmpout[j] << "NA\tNA\tNA\tNA\tNA\tNA\n";
+              writefile << tmpout[j] << "NA\tNA\tNA\tNA\tNA\tNA";
+              for (int e=0; e < (ei + (ei*ei)); e++) {
+                writefile << "\tNA";
+              }
+              writefile << "\n";
             } 
             else {
+              writefile << tmpout[j] << BETA_MAIN[p_idx] << "\t" << SE_MAIN[p_idx] << "\t";
+              
+              for (int b=0; b < ei; b++) {
+                int row = b_idx[b] + p_idx;
+                writefile << BETA_INT(row, p_idx) << "\t";
+              }
+              
+              for (int b=0; b < ei; b++) {
+                int col = b_idx[b] + p_idx;
+                for (int d=0; d < ei; d++) {
+                  int row = b_idx[d] + p_idx;
+                  writefile << IV_V_i(row, col) << "\t";
+                }
+              }
+              
               if (V_i[j] > 0) {
                 double p_m = Rf_pchisq(STAT_MAIN[p_idx], 1, 0, 0);
                 double p_i = Rf_pchisq(STAT_INT[p_idx], ei, 0, 0);
                 double p_j = Rf_pchisq(STAT_MAIN[p_idx] + STAT_INT[p_idx], 1+ei, 0, 0);
-                writefile << tmpout[j] << BETA_MAIN[p_idx] << "\t" << SE_MAIN[p_idx] << "\t" << p_m << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << p_j << "\n";
+                writefile << p_m << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << p_j << "\n";
               } 
               else {
                 double p_i = Rf_pchisq(STAT_INT[j], ei, 0, 0);
-                writefile << tmpout[j] << BETA_MAIN[p_idx] << "\t" << SE_MAIN[p_idx] << "\t" << "NA" << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << "NA" << "\n";
+                writefile  << "NA" << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << "NA" << "\n";
               }
               p_idx++;
             }

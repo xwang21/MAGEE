@@ -30,9 +30,10 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
   } else residuals <- null.obj$scaled.residuals
   n <- length(unique(null.obj$id_include))
   if(class(interaction)=="character") {
-    E <- as.matrix(null.obj$X[,which(colnames(null.obj$X) %in% interaction)])
+      if (!all(interaction %in% colnames(null.obj$X))) {stop("there are interactions not in column name of covariate matrix.")}
+      E <- as.matrix(null.obj$X[,interaction])
   } else {
-    E <- as.matrix(null.obj$X[,interaction+1])
+      E <- as.matrix(null.obj$X[,interaction+1])
   }
   interaction <- as.character(interaction)
   n.E <- as.numeric(dim(E)[2])
@@ -269,9 +270,9 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
           rm(geno)
           if(Garbage.Collection) gc()
         }
-        if (class(geno.file)[1] != "SeqVarGDSClass") {
-          SeqArray::seqClose(gds)
-        }
+   
+        SeqArray::seqClose(gds)
+        
         if(!is.null(meta.file.prefix)) close(meta.file.cov.handle)
         tmp.out <- data.frame(group=unique(group.info$group)[idx], n.variants=n.variants, miss.min=miss.min, miss.mean=miss.mean, miss.max=miss.max, freq.min=freq.min, freq.mean=freq.mean, freq.max=freq.max,freq.strata.min=freq.strata.min, freq.strata.max=freq.strata.max)
         if(MV | JV) tmp.out$MV.pval <- MV.pval
@@ -430,9 +431,9 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
         rm(geno, K)
         if(Garbage.Collection) gc()
       }
-      if (class(geno.file)[1] != "SeqVarGDSClass") {
-        SeqArray::seqClose(gds)
-      }
+
+      SeqArray::seqClose(gds)
+      
       if(!is.null(meta.file.prefix)) close(meta.file.cov.handle)
       out <- data.frame(group=unique(group.info$group), n.variants=n.variants, miss.min=miss.min, miss.mean=miss.mean, miss.max=miss.max, freq.min=freq.min, freq.mean=freq.mean, freq.max=freq.max,freq.strata.min=freq.strata.min, freq.strata.max=freq.strata.max)
       if(MV | JV) out$MV.pval <- MV.pval
@@ -480,7 +481,11 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
     }
     strata <- apply(E, 1, paste, collapse = ":")
     strata <- if(length(unique(strata))>length(strata)/100) NULL else as.numeric(as.factor(strata))
-    if(!is.null(strata)) strata.list <- lapply(unique(strata), function(x) which(strata==x))
+    if(!is.null(strata)) {
+      strata.list <- lapply(unique(strata), function(x) which(strata==x))
+    } else {
+      strata.list <- NULL
+    }
     null.obj$E <- E
     rm(E)
     bgenVariant <- .Call("bgenVariantInfo", geno.file, bgenInfo$offset, bgenInfo$M, bgenInfo$N, bgenInfo$LayoutFlag, bgenInfo$CompressionFlag)
@@ -540,7 +545,7 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
       t_idx <- split(1:n.groups.all, cut(seq_along(1:n.groups.all), ncores, labels = FALSE))
       out <- foreach(i=1:ncores, .combine = rbind, .multicombine = TRUE, .inorder=FALSE, .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
         if (bgenInfo$LayoutFlag == 2) {
-          .Call("magee_bgen13", as.numeric(residuals), null.obj, geno.file,  MAF.range[1], MAF.range[2], miss.cutoff, missing.method, is.null(null.obj$P), length(t_idx[[i]]), MF, MV, IF, IV, JD, JF, JV, group.info, group.idx.start[t_idx[[i]]], group.idx.end[t_idx[[i]]], weight, method, MAF.weights.beta[1], MAF.weights.beta[2], select,  bgenInfo$N, bgenInfo$CompressionFlag, 0)
+          suppressWarnings(.Call("magee_bgen13", as.numeric(residuals), null.obj, geno.file,  MAF.range[1], MAF.range[2], miss.cutoff, missing.method, is.null(null.obj$P), length(t_idx[[i]]), MF, MV, IF, IV, JD, JF, JV, group.info, group.idx.start[t_idx[[i]]], group.idx.end[t_idx[[i]]], weight, method, MAF.weights.beta[1], MAF.weights.beta[2], strata.list, select, bgenInfo$N, bgenInfo$CompressionFlag, 0))
         } else {
           stop("BGEN v1.1 is currently unsupported.")
         }
@@ -550,8 +555,11 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
       n.groups <- n.groups.all
       weight <- group.info$weight
       group.info <- group.info[,!(colnames(group.info) %in% c("weight"))]
-      out <- .Call("magee_bgen13", as.numeric(residuals), null.obj, geno.file, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, is.null(null.obj$P), n.groups, MF, MV, IF, IV, JD, JF, JV, group.info, group.idx.start, group.idx.end, weight, method, MAF.weights.beta[1], MAF.weights.beta[2], select,  bgenInfo$N, bgenInfo$CompressionFlag, 0)
-      
+      if (bgenInfo$LayoutFlag == 2) {
+        out <- suppressWarnings(.Call("magee_bgen13", as.numeric(residuals), null.obj, geno.file, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, is.null(null.obj$P), n.groups, MF, MV, IF, IV, JD, JF, JV, group.info, group.idx.start, group.idx.end, weight, method, MAF.weights.beta[1], MAF.weights.beta[2], strata.list, select, bgenInfo$N, bgenInfo$CompressionFlag, 0))
+      } else {
+        stop("BGEN v1.1 is currently unsupported.")
+      }
     }
     return(out)
   }

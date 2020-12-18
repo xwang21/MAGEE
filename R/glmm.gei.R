@@ -1,4 +1,4 @@
-glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.covariates=NULL, bgen.samplefile=NULL, center=T, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch=100, ncores = 1){
+glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=NULL, interaction.covariates=NULL, center=T, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch=100, ncores = 1){
   if(Sys.info()["sysname"] == "Windows" && ncores > 1) {
     warning("The package doMC is not available on Windows... Switching to single thread...")
     ncores <- 1
@@ -167,6 +167,11 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
               V <- diag(GPG)[1:ng]
               V_i <- ifelse(V < .Machine$double.eps, 0, 1/V)
             }
+            
+            V.MAIN.adj <- diag(GPG_i)[1:ng]
+            BETA.MAIN.adj <- as.vector(crossprod(GPG_i, U))[1:ng]
+            STAT.MAIN.adj <- ifelse(V.MAIN.adj > 0, BETA.MAIN.adj^2/V.MAIN.adj, NA)
+            
             BETA.MAIN <- V_i * U[1:ng]
             SE.MAIN <- sqrt(V_i)
             STAT.MAIN <- BETA.MAIN * U[1:ng]
@@ -188,7 +193,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
               BETA.INT <- crossprod(IV.V_i, IV.U)
               STAT.INT <- diag(crossprod(IV.U,  BETA.INT))
               PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
-              PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.MAIN + STAT.INT, df=1+ei, lower.tail=FALSE))
+              PVAL.JOINT <- ifelse(is.na(STAT.MAIN.adj), NA, pchisq(STAT.MAIN.adj + STAT.INT, df=1+ei, lower.tail=FALSE))
               
             } else {
               IV.U <- (rep(1, ei) %x% diag(ncol(geno))) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(BETA.MAIN)))
@@ -306,6 +311,11 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
             V <- diag(GPG)[1:ng]
             V_i <- ifelse(V < .Machine$double.eps, 0, 1/V)
           }
+          
+          V.MAIN.adj <- diag(GPG_i)[1:ng]
+          BETA.MAIN.adj <- as.vector(crossprod(GPG_i, U))[1:ng]
+          STAT.MAIN.adj <- ifelse(V.MAIN.adj > 0, BETA.MAIN.adj^2/V.MAIN.adj, NA)
+          
           BETA.MAIN <- V_i * U[1:ng]
           SE.MAIN <- sqrt(V_i)
           STAT.MAIN <- BETA.MAIN * U[1:ng]
@@ -327,7 +337,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
             BETA.INT <- crossprod(IV.V_i, IV.U)
             STAT.INT <- diag(crossprod(IV.U,  BETA.INT))
             PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
-            PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.MAIN + STAT.INT, df=1+ei, lower.tail=FALSE))
+            PVAL.JOINT <- ifelse(is.na(STAT.MAIN.adj), NA, pchisq(STAT.MAIN.adj + STAT.INT, df=1+ei, lower.tail=FALSE))
 
           } else {
             IV.U <- (rep(1, ei) %x% diag(ncol(geno))) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(BETA.MAIN)))
@@ -427,7 +437,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, interaction.cova
 
       outTmp <- file(outfile, "w")
       varInt_names = paste0("VAR.INT.", 1:ei)
-      writeLines(paste0("SNP\tRSID\tCHR\tPOS\tREF\tALT\tN\tMISSRATE\tAF\tAF.strata.min\tAF.strata.max\tBETA.MAIN\tSE.MAIN\t", paste0("BETA.INT.", 1:ei),  paste(rep(varInt_names, each = ei), 1:ei, sep = "."), "PVAL.MAIN\tSTAT.INT\tPVAL.INT\tPVAL.JOINT\n"), outTmp)
+      writeLines(paste0("SNP\tRSID\tCHR\tPOS\tREF\tALT\tN\tMISSRATE\tAF\tAF.strata.min\tAF.strata.max\tBETA.MAIN\tSE.MAIN\t", paste0("BETA.INT.", 1:ei, "\t"),  paste0(paste(rep(varInt_names, each = 3), 1:3, sep = "."), "\t"), "PVAL.MAIN\tSTAT.INT\tPVAL.INT\tPVAL.JOINT\n"), outTmp)
       for(i in 1:ncores){
         inTmp <- readLines(paste0(outfile, "_tmp.", i))
         writeLines(inTmp, outTmp)

@@ -17,10 +17,10 @@ SEXP bgenVariantInfo(SEXP bgenfile_in, SEXP offset_in, SEXP mbgen_in, SEXP nbgen
 SEXP magee_bgen13(SEXP res_in, SEXP nullObj_in, SEXP bgenfile_in, SEXP minmaf_in, SEXP maxmaf_in, SEXP missrate_in, SEXP miss_method_in, 
                   SEXP isNullP_in, SEXP n_groups_in, SEXP mf_in, SEXP mv_in, SEXP if_in, SEXP iv_in, SEXP jd_in, SEXP jf_in, SEXP jv_in,
                   SEXP groupInfo_in, SEXP groupStart_in, SEXP groupEnd_in, SEXP weight_in, SEXP method_in, SEXP beta1_in, SEXP beta2_in,
-                  SEXP select_in, SEXP nbgen_in, SEXP compression_in, SEXP isMultiThread_in);
+                  SEXP strata_in, SEXP select_in, SEXP nbgen_in, SEXP compression_in, SEXP isMultiThread_in);
 
 static const R_CallMethodDef R_CallDef[]  = {
-  {"magee_bgen13", (DL_FUNC) &magee_bgen13, 27},
+  {"magee_bgen13", (DL_FUNC) &magee_bgen13, 28},
   {"glmm_gei_bgen11", (DL_FUNC) &glmm_gei_bgen11, 24},
   {"glmm_gei_bgen13", (DL_FUNC) &glmm_gei_bgen13, 24},
   {"bgenHeader", (DL_FUNC) &bgenHeader, 1},

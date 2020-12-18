@@ -112,6 +112,7 @@ double Q_pval (double Q, arma::vec lambda, string method) {
    }
    if(method == "kuonen") {
      Rcpp::NumericVector tmpVec = pKuonen_r(Rcpp::_["x"] = Q, Rcpp::_["lambda"] = lambda);
+     pval = tmpVec[0];
      if(tmpVec == R_NilValue) {
         method = "liu";
       }
@@ -131,12 +132,11 @@ double Q_pval (double Q, arma::vec lambda, string method) {
 double quad_pval (arma::mat U_mat, arma::mat V_mat, string method) {
    vec U2 = U_mat % U_mat;
    double Q = arma::sum(U2);
+   
    vec lambda;
-   std::ostream nullstream(0);
-   arma::set_cerr_stream(nullstream);
    arma::eig_sym(lambda, V_mat);
-   uvec lmb_idx = find(lambda > 0);
-   lambda = lambda.rows(lmb_idx);
+   lambda = lambda.rows(find(lambda > 0));
+   
    double pval = Q_pval(Q, lambda, method = method);
    return(pval);
 }
@@ -149,7 +149,7 @@ extern "C"
   SEXP magee_bgen13(SEXP res_in, SEXP nullObj_in, SEXP bgenfile_in, SEXP minmaf_in, SEXP maxmaf_in, SEXP missrate_in, SEXP miss_method_in, 
                     SEXP isNullP_in, SEXP n_groups_in, SEXP mf_in, SEXP mv_in, SEXP if_in, SEXP iv_in, SEXP jd_in, SEXP jf_in, SEXP jv_in,
                     SEXP groupInfo_in, SEXP groupStart_in, SEXP groupEnd_in, SEXP weight_in, SEXP method_in, SEXP beta1_in, SEXP beta2_in,
-                    SEXP select_in, SEXP nbgen_in, SEXP compression_in, SEXP isMultiThread_in) {
+                    SEXP strata_in, SEXP select_in, SEXP nbgen_in, SEXP compression_in, SEXP isMultiThread_in) {
        
     try {
       int n_groups = Rcpp::as<int>(n_groups_in);
@@ -161,8 +161,8 @@ extern "C"
       Rcpp::NumericVector freq_min(n_groups, 100.0);
       Rcpp::NumericVector freq_mean(n_groups);
       Rcpp::NumericVector freq_max(n_groups, -100.0);
-      vec freq_strata_min = zeros(n_groups);
-      vec freq_strata_max = zeros(n_groups);
+      Rcpp::NumericVector freq_strata_min(n_groups, 100.0);
+      Rcpp::NumericVector freq_strata_max(n_groups, -100.0);    
 
       bool MF = Rcpp::as<bool>(mf_in);
       bool MV = Rcpp::as<bool>(mv_in);
@@ -195,6 +195,14 @@ extern "C"
       arma::sp_mat cov;
 
       Rcpp::List null_obj(nullObj_in);
+      Rcpp::List strata_list(strata_in);
+      int strataList_size = 0;
+      bool skip_strata = true;
+      if (strata_list[0]!=R_NilValue) {
+        skip_strata = false;
+        strataList_size = strata_list.size();
+      }
+      
       arma::mat E = as<arma::mat>(null_obj["E"]);
       bool isNullP = Rcpp::as<bool>(isNullP_in);
       if (!isNullP) {
@@ -225,7 +233,7 @@ extern "C"
       uvec gmiss(n);
       vector <string> biminfo;
       double gmean, geno, gmax, gmin;
-      const double tol = 1e-5;
+      //const double tol = 1e-5;
       size_t ncount, nmiss;
 
       Rcpp::DataFrame groupInfo(groupInfo_in);
@@ -249,7 +257,7 @@ extern "C"
 
       int ret;
       for (int grp = 0; grp < n_groups; grp++) {
-
+        
         int grpSize = (groupEnd[grp] - (groupStart[grp]-1));
         int npbidx = 0;
         mat G(n, grpSize);
@@ -259,180 +267,210 @@ extern "C"
         group_name[grp] = groupName[groupStart[grp]-1];
         double missMean = 0.0;
         double freqMean = 0.0;
+        int g_idx = 0;
         for (int m = (groupStart[grp]-1); m < groupEnd[grp]; m++) {
-            fseek(fp, bytes[m], SEEK_SET);
-
-            uint16_t LS;
-            ret = fread(&LS, 2, 1, fp);
-            ret = fread(snpID, 1, LS, fp);
-            snpID[LS] = '\0';
-
-            uint16_t LR;
-            ret = fread(&LR, 2, 1, fp);
-            ret = fread(rsID, 1, LR, fp);
-            rsID[LR] = '\0';
-
-            uint16_t LC;
-            ret = fread(&LC, 2, 1, fp);
-            ret = fread(chrStr, 1, LC, fp);
-            chrStr[LC] = '\0';
-
-            uint32_t physpos;
-            ret = fread(&physpos, 4, 1, fp);
-            string physpos_tmp = to_string(physpos);
-
-            uint16_t LKnum;
-            ret = fread(&LKnum, 2, 1, fp);
-            if (LKnum != 2) {
-              Rcout << "Error reading BGEN file: There are non-bi-allelic variants. \n"; return R_NilValue;
+          fseek(fp, bytes[m], SEEK_SET);
+          
+          uint16_t LS;
+          ret = fread(&LS, 2, 1, fp);
+          ret = fread(snpID, 1, LS, fp);
+          snpID[LS] = '\0';
+          
+          uint16_t LR;
+          ret = fread(&LR, 2, 1, fp);
+          ret = fread(rsID, 1, LR, fp);
+          rsID[LR] = '\0';
+          
+          uint16_t LC;
+          ret = fread(&LC, 2, 1, fp);
+          ret = fread(chrStr, 1, LC, fp);
+          chrStr[LC] = '\0';
+          
+          uint32_t physpos;
+          ret = fread(&physpos, 4, 1, fp);
+          string physpos_tmp = to_string(physpos);
+          
+          uint16_t LKnum;
+          ret = fread(&LKnum, 2, 1, fp);
+          if (LKnum != 2) {
+            Rcout << "Error reading BGEN file: There are non-bi-allelic variants. \n"; return R_NilValue;
+          }
+          
+          uint32_t LA;
+          ret = fread(&LA, 4, 1, fp);
+          ret = fread(allele1, 1, LA, fp);
+          allele1[LA] = '\0';
+          
+          uint32_t LB;
+          ret = fread(&LB, 4, 1, fp);
+          ret = fread(allele0, 1, LB, fp);
+          allele0[LB] = '\0';
+          
+          uint cLen; ret = fread(&cLen, 4, 1, fp);
+          
+          uchar* bufAt;
+          if (compression == 1) {
+            zBuf12.resize(cLen - 4);
+            uint dLen; ret = fread(&dLen, 4, 1, fp);
+            ret = fread(&zBuf12[0], 1, cLen - 4, fp);
+            shortBuf12.resize(dLen);
+            uLongf destLen = dLen;
+            
+            if (uncompress(&shortBuf12[0], &destLen, &zBuf12[0], cLen-4) != Z_OK || destLen != dLen) {
+              Rcout << "Error reading bgen file: Decompressing variant block failed with zLib. \n"; return R_NilValue;
             }
-
-            uint32_t LA;
-            ret = fread(&LA, 4, 1, fp);
-            ret = fread(allele1, 1, LA, fp);
-            allele1[LA] = '\0';
-
-            uint32_t LB;
-            ret = fread(&LB, 4, 1, fp);
-            ret = fread(allele0, 1, LB, fp);
-            allele0[LB] = '\0';
-
-            uint cLen; ret = fread(&cLen, 4, 1, fp);
-
-            uchar* bufAt;
-            if (compression == 1) {
-              zBuf12.resize(cLen - 4);
-              uint dLen; ret = fread(&dLen, 4, 1, fp);
-              ret = fread(&zBuf12[0], 1, cLen - 4, fp);
-              shortBuf12.resize(dLen);
-              uLongf destLen = dLen;
-
-              if (uncompress(&shortBuf12[0], &destLen, &zBuf12[0], cLen-4) != Z_OK || destLen != dLen) {
-                Rcout << "Error reading bgen file: Decompressing variant block failed with zLib. \n"; return R_NilValue;
+            bufAt = &shortBuf12[0];
+          }
+          else if (compression == 2) {
+            zBuf12.resize(cLen - 4);
+            uint dLen; ret = fread(&dLen, 4, 1, fp);
+            ret = fread(&zBuf12[0], 1, cLen - 4, fp);
+            shortBuf12.resize(dLen);
+            
+            uLongf destLen = dLen;
+            size_t ret = ZSTD_decompress(&shortBuf12[0], destLen, &zBuf12[0], cLen - 4);
+            if (ret > destLen) {
+              if (ZSTD_isError(ret)) {
+                Rcout << "Error reading bgen file: Decompressing genotype block failed. \n"; return R_NilValue;
               }
-              bufAt = &shortBuf12[0];
             }
-            else if (compression == 2) {
-              zBuf12.resize(cLen - 4);
-              uint dLen; ret = fread(&dLen, 4, 1, fp);
-              ret = fread(&zBuf12[0], 1, cLen - 4, fp);
-              shortBuf12.resize(dLen);
-
-              uLongf destLen = dLen;
-              size_t ret = ZSTD_decompress(&shortBuf12[0], destLen, &zBuf12[0], cLen - 4);
-              if (ret > destLen) {
-                if (ZSTD_isError(ret)) {
-                  Rcout << "Error reading bgen file: Decompressing genotype block failed. \n"; return R_NilValue;
-                }
-              }
-              bufAt = &shortBuf12[0];
-            }
-            else {
-              zBuf12.resize(cLen);
-              ret = fread(&zBuf12[0], 1, cLen, fp);
-              bufAt = &zBuf12[0];
-            }
-
-            uint32_t N; memcpy(&N, bufAt, sizeof(int32_t));
-            uint16_t K; memcpy(&K, &(bufAt[4]), sizeof(int16_t));
-            if (K != 2) {Rcout << "Error reading bgen file: There are variants with more than 2 alleles. \n"; return R_NilValue;}
-            const uint32_t min_ploidy = bufAt[6];
-            if (min_ploidy != 2) {Rcout << "Error reading bgen file: Minimum ploidy should be 2. \n"; return R_NilValue;}
-            const uint32_t max_ploidy = bufAt[7];
-            if (max_ploidy != 2) {Rcout << "Error reading bgen file: Maximum ploidy should be 2. \n"; return R_NilValue;}
-
-            const unsigned char* missing_and_ploidy_info = &(bufAt[8]);
-            const unsigned char* probs_start = &(bufAt[10 + N]);
-            const uint32_t is_phased = probs_start[-2];
-            if (is_phased < 0 || is_phased > 1) {Rcout << "Error reading bgen file: Phased value must be 0 or 1. \n"; return R_NilValue;}
-
-            const uint32_t B = probs_start[-1];
-
-            if (B != 8 && B!= 16 && B !=24 && B != 32) {
-              Rcout << "Error reading bgen file: Bits to store probabilities must be 8, 16, 24, or 32. \n"; return R_NilValue;
-            }
-
-            const uintptr_t numer_mask = (1U << B) - 1;
-            const uintptr_t probs_offset = B / 8;
-
-            gmean=0.0;
-            gmax=-100.0;
-            gmin=100.0;
-            nmiss=0;
-            ncount = 0;
-
-            if (!is_phased) {
-              for (size_t i = 0; i < N; i++) {
-                const uint32_t missing_and_ploidy = missing_and_ploidy_info[i];
-                uintptr_t numer_aa;
-                uintptr_t numer_ab;
-
-                if (missing_and_ploidy == 2){
-                  Bgen13GetTwoVals(probs_start, B, probs_offset, &numer_aa, &numer_ab);
-                  probs_start += (probs_offset * 2);
-
-                } else if (missing_and_ploidy == 130){
-                  probs_start += (probs_offset * 2);
-                  gmiss[select[ncount]-1] = 1;
-                  nmiss++;
-                  ncount++;
-                  continue;
-
-                } else {
-                  Rcout << "Error reading bgen file: Ploidy value " << missing_and_ploidy << " is unsupported. Must be 2 or 130. \n"; return R_NilValue;
-                }
-
-
-                if (select[ncount] > 0){
-                  double p11 = numer_aa / double(1.0 * numer_mask);
-                  double p10 = numer_ab / double(1.0 * numer_mask);
-                  geno = 2 * (1 - p11 - p10) + p10;
-                  gmiss[select[ncount]-1] = 0;
-                  g[select[ncount]-1] = geno;
-                  gmean += geno;
-                  if (geno > gmax) { gmax = geno; }
-                  if (geno < gmin) { gmin = geno; }
-                }
+            bufAt = &shortBuf12[0];
+          }
+          else {
+            zBuf12.resize(cLen);
+            ret = fread(&zBuf12[0], 1, cLen, fp);
+            bufAt = &zBuf12[0];
+          }
+          
+          uint32_t N; memcpy(&N, bufAt, sizeof(int32_t));
+          uint16_t K; memcpy(&K, &(bufAt[4]), sizeof(int16_t));
+          if (K != 2) {Rcout << "Error reading bgen file: There are variants with more than 2 alleles. \n"; return R_NilValue;}
+          const uint32_t min_ploidy = bufAt[6];
+          if (min_ploidy != 2) {Rcout << "Error reading bgen file: Minimum ploidy should be 2. \n"; return R_NilValue;}
+          const uint32_t max_ploidy = bufAt[7];
+          if (max_ploidy != 2) {Rcout << "Error reading bgen file: Maximum ploidy should be 2. \n"; return R_NilValue;}
+          
+          const unsigned char* missing_and_ploidy_info = &(bufAt[8]);
+          const unsigned char* probs_start = &(bufAt[10 + N]);
+          const uint32_t is_phased = probs_start[-2];
+          if (is_phased < 0 || is_phased > 1) {Rcout << "Error reading bgen file: Phased value must be 0 or 1. \n"; return R_NilValue;}
+          
+          const uint32_t B = probs_start[-1];
+          
+          if (B != 8 && B!= 16 && B !=24 && B != 32) {
+            Rcout << "Error reading bgen file: Bits to store probabilities must be 8, 16, 24, or 32. \n"; return R_NilValue;
+          }
+          
+          const uintptr_t numer_mask = (1U << B) - 1;
+          const uintptr_t probs_offset = B / 8;
+          
+          gmean=0.0;
+          gmax=-100.0;
+          gmin=100.0;
+          nmiss=0;
+          ncount = 0;
+          
+          if (!is_phased) {
+            for (size_t i = 0; i < N; i++) {
+              const uint32_t missing_and_ploidy = missing_and_ploidy_info[i];
+              uintptr_t numer_aa;
+              uintptr_t numer_ab;
+              
+              if (missing_and_ploidy == 2){
+                Bgen13GetTwoVals(probs_start, B, probs_offset, &numer_aa, &numer_ab);
+                probs_start += (probs_offset * 2);
+                
+              } else if (missing_and_ploidy == 130){
+                probs_start += (probs_offset * 2);
+                gmiss[select[ncount]-1] = 1;
+                nmiss++;
                 ncount++;
-
+                continue;
+                
+              } else {
+                Rcout << "Error reading bgen file: Ploidy value " << missing_and_ploidy << " is unsupported. Must be 2 or 130. \n"; return R_NilValue;
               }
-
+              
+              
+              if (select[ncount] > 0){
+                double p11 = numer_aa / double(1.0 * numer_mask);
+                double p10 = numer_ab / double(1.0 * numer_mask);
+                geno = 2 * (1 - p11 - p10) + p10;
+                gmiss[select[ncount]-1] = 0;
+                g[select[ncount]-1] = geno;
+                gmean += geno;
+                if (geno > gmax) { gmax = geno; }
+                if (geno < gmin) { gmin = geno; }
+              }
+              ncount++;
+              
+            }
+            
+          } else {
+            for (size_t i = 0; i < N; i++) {
+              const uint32_t missing_and_ploidy = missing_and_ploidy_info[i];
+              uintptr_t numer_aa;
+              uintptr_t numer_ab;
+              
+              if (missing_and_ploidy == 2){
+                Bgen13GetTwoVals(probs_start, B, probs_offset, &numer_aa, &numer_ab);
+                probs_start += (probs_offset * 2);
+                
+              } else if (missing_and_ploidy == 130){
+                probs_start += (probs_offset * 2);
+                gmiss[select[ncount]-1] = 1;
+                nmiss++;
+                ncount++;
+                continue;
+                
+              } else {
+                Rcout << "Error reading bgen file: Ploidy value " << missing_and_ploidy << " is unsupported. Must be 2 or 130. \n"; return R_NilValue;
+              }
+              
+              if (select[ncount] > 0){
+                double p11 = numer_aa / double(1.0 * numer_mask);
+                double p10 = numer_ab / double(1.0 * numer_mask);
+                geno = double(1.0 * missing_and_ploidy) - (p11 + p10);
+                gmiss[select[ncount]-1] = 0;
+                g[select[ncount]-1] = geno;
+                gmean += geno;
+                if (geno > gmax) { gmax = geno; }
+                if (geno < gmin) { gmin = geno; }
+              }
+              ncount++;
+              
+            }
+          }
+          gmean/=(double)(n-nmiss);
+          double tmp_mean = gmean/2.0;
+          if(((double)nmiss/n>missrate) || ((tmp_mean<minmaf || tmp_mean>maxmaf) && (tmp_mean<1-maxmaf || tmp_mean>1-minmaf))) { // monomorphic, missrate, MAF
+            g_idx++;
+            continue;
+            
+          } else {
+            
+            if (!skip_strata) {
+              std::vector<double> strata_range(strataList_size);
+              for (int strata_idx = 0; strata_idx < strataList_size; strata_idx++) {
+                uvec strata_tmp = as<arma::uvec>(strata_list[strata_idx]);
+                uvec strata_gmiss = gmiss.elem(strata_tmp-1);
+                vec strata_g = g.elem(strata_tmp-1);
+                strata_range[strata_idx] = mean(strata_g.elem(find(strata_gmiss == 0))) / 2.0;
+              }
+              double strata_min = *min_element(strata_range.begin(), strata_range.end());
+              double strata_max = *max_element(strata_range.begin(), strata_range.end());
+              
+              if (strata_min < minmaf || (strata_max > (1-minmaf))) {
+                g_idx++;
+                continue;
+              }
+              freq_strata_min[grp] = (strata_min < freq_strata_min[grp]) ? strata_min : freq_strata_min[grp];
+              freq_strata_max[grp] = (strata_max > freq_strata_max[grp]) ? strata_max : freq_strata_max[grp];
             } else {
-              for (size_t i = 0; i < N; i++) {
-                const uint32_t missing_and_ploidy = missing_and_ploidy_info[i];
-                uintptr_t numer_aa;
-                uintptr_t numer_ab;
-
-                if (missing_and_ploidy == 2){
-                  Bgen13GetTwoVals(probs_start, B, probs_offset, &numer_aa, &numer_ab);
-                  probs_start += (probs_offset * 2);
-
-                } else if (missing_and_ploidy == 130){
-                  probs_start += (probs_offset * 2);
-                  gmiss[select[ncount]-1] = 1;
-                  nmiss++;
-                  ncount++;
-                  continue;
-
-                } else {
-                  Rcout << "Error reading bgen file: Ploidy value " << missing_and_ploidy << " is unsupported. Must be 2 or 130. \n"; return R_NilValue;
-                }
-
-                if (select[ncount] > 0){
-                  double p11 = numer_aa / double(1.0 * numer_mask);
-                  double p10 = numer_ab / double(1.0 * numer_mask);
-                  geno = double(1.0 * missing_and_ploidy) - (p11 + p10);
-                  gmiss[select[ncount]-1] = 0;
-                  g[select[ncount]-1] = geno;
-                  gmean += geno;
-                  if (geno > gmax) { gmax = geno; }
-                  if (geno < gmin) { gmin = geno; }
-                }
-                ncount++;
-
-              }
+              freq_strata_min[grp] = NA_REAL;
+              freq_strata_max[grp] = NA_REAL;
             }
-            gmean/=(double)(n-nmiss);
+            
             if (nmiss > 0) {
               for (size_t j=0; j<n; ++j) {
                 if (gmiss[j]==1) {
@@ -444,26 +482,23 @@ extern "C"
                 }
               }
             }
-
+            
             gmean /= 2.0; // convert mean to allele freq
-            if((gmax-gmin<tol) || ((double)nmiss/n>missrate) || ((gmean<minmaf || gmean>maxmaf) && (gmean<1-maxmaf || gmean>1-minmaf))) { // monomorphic, missrate, MAF
-              continue;
-
-            } else {
-              G.col(npbidx) = g;
-              double miss = (double)(nmiss/n);
-              freqMean += gmean;
-              missMean += miss;
-              freq(npbidx) = gmean;
-              miss_min[grp]  = (miss < miss_min[grp]) ? miss : miss_min[grp];
-              miss_max[grp]  = (miss > miss_max[grp]) ? miss : miss_max[grp];
-              freq_min[grp] = (gmean < freq_min[grp]) ? gmean : freq_min[grp];
-              freq_max[grp] = (gmean > freq_max[grp]) ? gmean : freq_max[grp];
-              weight(npbidx) = weight1(npbidx);
-              npbidx++;
-            }
-
-
+            G.col(npbidx) = g;
+            double miss = (double)(nmiss/(n * 1.0));
+            freqMean += gmean;
+            missMean += miss;
+            freq(npbidx) = gmean;
+            miss_min[grp]  = (miss < miss_min[grp]) ? miss : miss_min[grp];
+            miss_max[grp]  = (miss > miss_max[grp]) ? miss : miss_max[grp];
+            freq_min[grp] = (gmean < freq_min[grp]) ? gmean : freq_min[grp];
+            freq_max[grp] = (gmean > freq_max[grp]) ? gmean : freq_max[grp];
+            weight(npbidx) = weight1(g_idx);
+            g_idx++;
+            npbidx++;
+          }
+          
+          
         }
         if (npbidx == 0) {
           miss_min[grp] = NA_REAL;
@@ -472,6 +507,8 @@ extern "C"
           freq_min[grp] = NA_REAL;
           freq_mean[grp] = NA_REAL;
           freq_max[grp] = NA_REAL;
+          freq_strata_min[grp] = NA_REAL;
+          freq_strata_max[grp] = NA_REAL;
           continue;
         }
         n_variants[grp] = npbidx;
@@ -489,6 +526,7 @@ extern "C"
           sp_mat GSigma_iX =  Gsp.t() * Sigma_iX;
           PG = (Sigma_i.t() * Gsp) - (Sigma_iX * (GSigma_iX * cov.t()).t());
         }
+        
         mat V = G.t() * PG;
         mat K;
         mat IV_U;
@@ -510,11 +548,13 @@ extern "C"
           IV_U = (K.t() * res) - ((KPG * V_i.t()) * U);
           IV_V = KPK - ((KPG * V_i.t()) * KPG.t());
         }
+     
         vec tmpWeight = MAF_weights_beta_fun(freq, beta1, beta2);
         weight = weight % tmpWeight;
         U = U % weight;
         V = (V.each_col() % weight).t();
         V = V.each_col() % weight;
+        
         if(IV || IF || JV || JF || JD) {
           vec tmpWeight2;
           if (E.n_cols > 1) {
@@ -530,24 +570,24 @@ extern "C"
             IV_V = IV_V.each_col() % weight;
           }
         }
-
+        
         if (MV || JV) { MV_pval[grp] = quad_pval(U,  V, method);}
         if (IV || JV) { IV_pval[grp] = quad_pval(IV_U,  IV_V, method);}
         vec MV_IV_pval(2); MV_IV_pval(0) = MV_pval[grp]; MV_IV_pval(1) = IV_pval[grp];
         if (JV) { JV_pval[grp] = fisher_pval(MV_IV_pval);}
+        
         double MF_Bp = 0.0;
         double MF_p = 0.0;
         if (MF || JF || JD) {
           vec MF_BU(npbidx); MF_BU.fill(sum(U));
           vec MF_BV(npbidx); MF_BV.fill(accu(V));
-
           MF_Bp = Rf_pchisq((MF_BU(0) * MF_BU(0))/MF_BV(0), 1, 0, 0);
           vec V_rowSums = sum(V, 1);
-
+          
           mat MF_U = U - ((V_rowSums % MF_BU) / MF_BV);
           mat MF_V = V_rowSums * V_rowSums.t();
           MF_V = V - (MF_V.each_col() / MF_BV);
-
+          
           double eps = DBL_EPSILON;
           if ((accu(abs(MF_V)) / (npbidx * npbidx)) < sqrt(eps)) {
             MF_p = NA_REAL;
@@ -557,18 +597,19 @@ extern "C"
           vec MFBp_MFp_pval(2); MFBp_MFp_pval(0) = MF_Bp; MFBp_MFp_pval(1) = MF_p;
           MF_pval[grp] = fisher_pval(MFBp_MFp_pval);
         }
+        
         double IF_Bp = 0.0;
         double IF_p = 0.0;
         if (IF || JF || JD) {
           vec IF_BU(npbidx * E.n_cols); IF_BU.fill(accu(IV_U));
           vec IF_BV(npbidx * E.n_cols); IF_BV.fill(accu(IV_V));
-
+          
           IF_Bp = Rf_pchisq((IF_BU(0) * IF_BU(0))/IF_BV(0), 1, 0, 0);
           vec IV_rowSums = sum(IV_V, 1);
           mat IF_U = IV_U - ((IV_rowSums % IF_BU) / IF_BV);
           mat IF_V = IV_rowSums * IV_rowSums.t();
           IF_V = IV_V - (IF_V.each_col() / IF_BV);
-
+          
           double eps = DBL_EPSILON;
           if ((accu(abs(IF_V)) / (npbidx * npbidx)) < sqrt(eps)) {
             IF_p = -9.0;
@@ -578,13 +619,14 @@ extern "C"
           vec IFBp_IFp_pval(2); IFBp_IFp_pval(0) = IF_Bp; IFBp_IFp_pval(1) = IF_p;
           IF_pval[grp] = fisher_pval(IFBp_IFp_pval);
         }
-
+        
         vec jf_tmp(4); jf_tmp(0) = MF_Bp; jf_tmp(1) = MF_p; jf_tmp(2) = IF_Bp; jf_tmp(3) = IF_p;
         if (JF) {JF_pval[grp] = fisher_pval(jf_tmp);}
         vec jd_tmp(2); jd_tmp(0) = MF_pval[grp]; jd_tmp(1) = IF_pval[grp];
         if (JD) {JD_pval[grp] = fisher_pval(jd_tmp);}
-
+        
       }
+      
 
 
       (void)ret;
@@ -602,6 +644,8 @@ extern "C"
                                      Named("freq.min") = freq_min,
                                      Named("freq.mean") = freq_mean,
                                      Named("freq.max") = freq_max,
+                                     Named("freq.strata.min") = freq_strata_min,
+                                     Named("freq.strata.max") = freq_strata_max,
                                      Named("MV.pval") = MV_pval,
                                      Named("MF.pval") = MF_pval,
                                      Named("IV.pval") = IV_pval,

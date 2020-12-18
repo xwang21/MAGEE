@@ -128,7 +128,7 @@ extern "C"
       string* tmpout = new string[npb];
       vector <string> biminfo;
       double gmean, geno, gmax, gmin;
-      const double tol = 1e-5;
+      //const double tol = 1e-5;
       size_t ncount, nmiss, npbidx = 0;
       double compute_time = 0.0;
       ofstream writefile(outfile.c_str(), ofstream::out);
@@ -373,7 +373,7 @@ extern "C"
          }
        }
        gmean /= 2.0; // convert mean to allele freq
-       if((gmax-gmin<tol) || ((double)nmiss/n>missrate) || ((gmean<minmaf || gmean>maxmaf) && (gmean<1-maxmaf || gmean>1-minmaf))) { // monomorphic, missrate, MAF
+       if(((double)nmiss/n>missrate) || ((gmean<minmaf || gmean>maxmaf) && (gmean<1-maxmaf || gmean>1-minmaf))) { // monomorphic, missrate, MAF
         snp_skip[npbidx] = 1;
        } else {
         G.col(npbidx) = g;
@@ -390,6 +390,10 @@ extern "C"
        vec SE_MAIN;
        mat BETA_INT;
   
+       vec V_MAIN_adj;
+       vec BETA_MAIN_adj; 
+       vec STAT_MAIN_adj; 
+    
        if((m+1 == end) || (npbidx == npb)) {
           
         
@@ -445,6 +449,11 @@ extern "C"
               }
             }
             
+            V_MAIN_adj = diagvec(GPG_i);
+            V_MAIN_adj = V_MAIN_adj.rows(0, ng-1);
+            BETA_MAIN_adj = GPG_i.t() * U;
+            BETA_MAIN_adj = BETA_MAIN_adj.rows(0, ng-1);
+            
             BETA_MAIN = V_i % U.rows(0,ng-1);
             SE_MAIN = sqrt(V_i);
             STAT_MAIN = BETA_MAIN % U.rows(0,ng-1);
@@ -491,11 +500,13 @@ extern "C"
            else {
              writefile << tmpout[j] << BETA_MAIN[p_idx] << "\t" << SE_MAIN[p_idx] << "\t";
 
+             // Beta Int
              for (int b=0; b < ei; b++) {
                int row = b_idx[b] + p_idx;
                writefile << BETA_INT(row, p_idx) << "\t";
              }
              
+             // Var Int
              for (int b=0; b < ei; b++) {
                int col = b_idx[b] + p_idx;
                for (int d=0; d < ei; d++) {
@@ -504,15 +515,34 @@ extern "C"
                }
              }
              
-             if (V_i[j] > 0) {
-               double p_m = Rf_pchisq(STAT_MAIN[p_idx], 1, 0, 0);
-               double p_i = Rf_pchisq(STAT_INT[p_idx], ei, 0, 0);
-               double p_j = Rf_pchisq(STAT_MAIN[p_idx] + STAT_INT[p_idx], 1+ei, 0, 0);
-               writefile << p_m << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << p_j << "\n";
-             } 
-             else {
-               double p_i = Rf_pchisq(STAT_INT[j], ei, 0, 0);
-               writefile  << "NA" << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << "NA" << "\n";
+             if (isNullEC) {
+               if (V_i[p_idx] > 0) {
+                 double p_m = Rf_pchisq(STAT_MAIN[p_idx], 1, 0, 0);
+                 double p_i = Rf_pchisq(STAT_INT[p_idx], ei, 0, 0);
+                 double p_j = Rf_pchisq(STAT_MAIN[p_idx] + STAT_INT[p_idx], 1+ei, 0, 0);
+                 writefile << p_m << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << p_j << "\n";
+               } 
+               else {
+                 double p_i = Rf_pchisq(STAT_INT[j], ei, 0, 0);
+                 writefile  << "NA" << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << "NA" << "\n";
+               }
+             } else {
+               if (V_i[p_idx] > 0) {
+                 double p_m = Rf_pchisq(STAT_MAIN[p_idx], 1, 0, 0);
+                 double p_i = Rf_pchisq(STAT_INT[p_idx], ei, 0, 0);
+                 writefile << p_m << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t";
+               } 
+               else {
+                 double p_i = Rf_pchisq(STAT_INT[j], ei, 0, 0);
+                 writefile  << "NA" << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t";
+               }
+               if (V_MAIN_adj[p_idx > 0]) {
+                 double STAT_MAIN_adj = (BETA_MAIN_adj[p_idx] * BETA_MAIN_adj[p_idx])/V_MAIN_adj[p_idx];
+                 double p_j = Rf_pchisq(STAT_MAIN_adj+ STAT_INT[p_idx], 1+ei, 0, 0);
+                 writefile  << p_j << "\n";
+               } else {
+                 writefile  << "NA" << "\n";
+               }
              }
              p_idx++;
            }
@@ -610,7 +640,7 @@ extern "C"
       string* tmpout = new string[npb];
       vector <string> biminfo;
       double gmean, geno, gmax, gmin;
-      const double tol = 1e-5;
+      //const double tol = 1e-5;
       size_t ncount, nmiss, npbidx = 0;
       double compute_time = 0.0;
       ofstream writefile(outfile.c_str(), ofstream::out);
@@ -767,7 +797,7 @@ extern "C"
         }
         
         gmean /= 2.0; // convert mean to allele freq
-        if((gmax-gmin<tol) || ((double)nmiss/n>missrate) || ((gmean<minmaf || gmean>maxmaf) && (gmean<1-maxmaf || gmean>1-minmaf))) { // monomorphic, missrate, MAF
+        if(((double)nmiss/n>missrate) || ((gmean<minmaf || gmean>maxmaf) && (gmean<1-maxmaf || gmean>1-minmaf))) { // monomorphic, missrate, MAF
           snp_skip[npbidx] = 1;
         } else {
           G.col(npbidx) = g;

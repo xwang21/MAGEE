@@ -4,15 +4,24 @@
 Mixed model Association tests for GEne-Environment interactions
 }
 \description{
-Use a glmmkin class object from the null GLMM to perform variant set-based main effect tests, gene-environment interaction tests, and joint tests for association with genotypes in a GDS file (.gds). 7 user-defined tests are included: Main effect variance component test (MV), Main effect hybrid test of burden and variance component test using Fisher's method (MF), Interaction variance component test (IV), Interaction hybrid test of burden and variance component test using Fisher's method (IF), Joint variance component test (JV), Joint hybrid test of burden and variance component test using Fisher's method (JF), and Joint hybrid test of burden and variance component test using double Fisher's procedures (JD).
+Use a glmmkin class object from the null GLMM to perform variant set-based main effect tests, gene-environment interaction tests, and joint tests for association with genotypes in a GDS file (.gds). 7 user-defined tests are included: Main effect variance component test (MV), Main effect hybrid test of burden and variance component test using Fisher's method (MF), Interaction variance component test (IV), Interaction hybrid test of burden and variance component test using Fisher's method (IF), Joint variance component test (JV), Joint hybrid test of burden and variance component test using Fisher's method (JF), and Joint hybrid test of burden and variance component test using double Fisher's procedures (JD). MAGEE.prep and MAGEE.lowmem are two-step low-memory version of MAGEE. MAGEE.lowmem takes the returned R object from MAGEE.prep to use less memory (the returned R object should be saved to an R data file and should be reloaded after restarting the R session). 
 }
 \usage{
 MAGEE(null.obj, interaction, geno.file, group.file,  group.file.sep = "\t", 
-  bgen.samplefile = NULL, meta.file.prefix = NULL,MAF.range = c(1e-7, 0.5), 
-  MAF.weights.beta = c(1, 25), miss.cutoff = 1, missing.method = "impute2mean", 
-  method = "davies", tests = "JF", use.minor.allele = FALSE, auto.flip = FALSE, 
-  Garbage.Collection = FALSE, is.dosage = FALSE, ncores = 1)
+      bgen.samplefile = NULL, meta.file.prefix = NULL,MAF.range = c(1e-7, 0.5), 
+      MAF.weights.beta = c(1, 25), miss.cutoff = 1, missing.method = "impute2mean", 
+      method = "davies", tests = "JF", use.minor.allele = FALSE, auto.flip = FALSE, 
+      Garbage.Collection = FALSE, is.dosage = FALSE, ncores = 1)
+  
+MAGEE.prep(null.obj, interaction, geno.file, group.file, group.file.sep = "\t", 
+           auto.flip = FALSE)
+           
+MAGEE.lowmem(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(1e-7, 0.5), 
+             MAF.weights.beta = c(1, 25), miss.cutoff = 1, missing.method = "impute2mean", 
+             method = "davies", tests = "JF", use.minor.allele = FALSE, 
+             Garbage.Collection = FALSE, is.dosage = FALSE, ncores = 1, verbose = FALSE)
 }
+
 \arguments{
   \item{null.obj}{
 a class glmmkin object, returned by fitting the null GLMM using \code{glmmkin( )}.

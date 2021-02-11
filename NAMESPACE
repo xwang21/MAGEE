@@ -13,5 +13,5 @@ importFrom("GMMAT", "glmmkin")
 
 useDynLib(MAGEE, .registration = TRUE, .fixes = "C_")
 
-export(MAGEE, glmm.gei)
+export(MAGEE, glmm.gei, MAGEE.prep, MAGEE.lowmem)
 

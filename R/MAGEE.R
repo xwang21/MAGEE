@@ -700,7 +700,11 @@ MAGEE.prep <- function(null.obj, interaction, geno.file, group.file, group.file.
   }
   strata <- apply(E, 1, paste, collapse = ":")
   strata <- if(length(unique(strata))>length(strata)/100) NULL else as.numeric(as.factor(strata))
-  if(!is.null(strata)) strata.list <- lapply(unique(strata), function(x) which(strata==x))
+  if(!is.null(strata)) {
+    strata.list <- lapply(unique(strata), function(x) which(strata==x)
+  } else {
+    stata.list = NULL
+  }
   variant.idx <- SeqArray::seqGetData(gds, "variant.id")
   chr <- SeqArray::seqGetData(gds, "chromosome")
   pos <- SeqArray::seqGetData(gds, "position")

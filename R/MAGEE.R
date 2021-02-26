@@ -698,6 +698,7 @@ MAGEE.prep <- function(null.obj, interaction, geno.file, group.file, group.file.
     null.obj$Sigma_iX <- null.obj$Sigma_iX[match.id, , drop = FALSE]
     null.obj$Sigma_i <- null.obj$Sigma_i[match.id, match.id]
   }
+  E <- as.matrix(E[match.id, , drop = FALSE])
   strata <- apply(E, 1, paste, collapse = ":")
   strata <- if(length(unique(strata))>length(strata)/100) NULL else as.numeric(as.factor(strata))
   if(!is.null(strata)) {
@@ -721,8 +722,8 @@ MAGEE.prep <- function(null.obj, interaction, geno.file, group.file, group.file.
   if (class(group.info) == "try-error") {
     stop("Error: cannot read group.file!")
   }
+  group.info <- group.info[!duplicated(paste(group.info$group, group.info$chr, group.info$pos, group.info$ref, group.info$alt, sep = ":")), ]
   variant.id1 <- paste(group.info$chr, group.info$pos, group.info$ref, group.info$alt, sep = ":")
-  group.info <- group.info[!duplicated(paste(group.info$group, variant.id1, sep = ":")), ]
   variant.idx1 <- variant.idx[match(variant.id1, variant.id)]
   group.info$variant.idx <- variant.idx1
   group.info$flip <- 0

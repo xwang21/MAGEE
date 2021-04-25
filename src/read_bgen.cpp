@@ -10,6 +10,7 @@ using namespace Rcpp;
 typedef unsigned int uint;
 typedef unsigned char uchar;
 typedef unsigned short ushort;
+typedef long long unsigned int llui;
 
 using namespace std;
 using namespace Rcpp;
@@ -261,8 +262,9 @@ extern "C"
     Rcpp::NumericVector    vecLK(mbgen);
     Rcpp::CharacterVector  vecA1(mbgen);
     Rcpp::CharacterVector  vecA2(mbgen);
-    Rcpp::NumericVector    vecBYTE(mbgen);
     
+    vector<llui>* bytes = new vector<llui>(mbgen);
+    vector<llui>& br = *bytes;
     
     FILE* fin;
     fin = fopen(bgenfile.c_str(), "rb");
@@ -275,7 +277,7 @@ extern "C"
     
     int ret;
     for (uint snploop = 0; snploop < mbgen; snploop++) {
-      long long unsigned int byte = ftell(fin);
+      br[snploop] = ftell(fin);
       if (layout == 1) {
         uint Nid; ret = fread(&Nid, 4, 1, fin);  
         if (Nid != nbgen) {
@@ -354,7 +356,6 @@ extern "C"
       vecLK[snploop]    = LKnum;
       vecA1[snploop]    = allele1;
       vecA2[snploop]    = allele0;
-      vecBYTE[snploop]  = byte;
     }
     
     delete[] snpID;
@@ -364,13 +365,15 @@ extern "C"
     delete[] allele1;
     (void)ret;
     fclose(fin);
-    return(Rcpp::DataFrame::create(Named("SNPID")   = vecSNPID,
-                                   Named("RSID")    = vecRSID,
-                                   Named("CHR")     = vecCHR,
-                                   Named("POS")     = vecPOS,
-                                   Named("ALLELES") = vecLK,
-                                   Named("A1")      = vecA1,
-                                   Named("A2")      = vecA2,
-                                   Named("BYTE")    = vecBYTE));  
+    SEXP fbytes = R_MakeExternalPtr(bytes, R_NilValue, R_NilValue);
+    return(Rcpp::List::create(Named("VariantInfo") = Rcpp::DataFrame::create(Named("SNPID")   = vecSNPID,
+                                                                             Named("RSID")    = vecRSID,
+                                                                             Named("CHR")     = vecCHR,
+                                                                             Named("POS")     = vecPOS,
+                                                                             Named("ALLELES") = vecLK,
+                                                                             Named("A1")      = vecA1,
+                                                                             Named("A2")      = vecA2),
+                              Named("fbytes")       = fbytes                                                
+                              ));  
   }
 }

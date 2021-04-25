@@ -530,6 +530,7 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
     }
     return(out[match(groups, out$group),])
   } else if (grepl("\\.bgen$", geno.file)) {
+    
     bgenInfo <- .Call('bgenHeader', geno.file)
     if (bgenInfo$SampleIdFlag == 0) {
       if (is.null(bgen.samplefile)) {
@@ -570,21 +571,18 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
     } else {
       strata.list <- NULL
     }
-    null.obj$E <- E
-    rm(E)
     bgenVariant <- .Call("bgenVariantInfo", geno.file, bgenInfo$offset, bgenInfo$M, bgenInfo$N, bgenInfo$LayoutFlag, bgenInfo$CompressionFlag)
-    variant.id <- paste(bgenVariant$CHR, bgenVariant$POS, bgenVariant$A1, bgenVariant$A2, sep = ":")
+    variant.id <- paste(bgenVariant$VariantInfo$CHR, bgenVariant$VariantInfo$POS, bgenVariant$VariantInfo$A1, bgenVariant$VariantInfo$A2, sep = ":")
     gc()
     variant.idx <- 1:length(variant.id)
     group.info <- try(read.table(group.file, header = FALSE, col.names = c("group", "chr", "pos", "ref", "alt", "weight"), colClasses = c("character","character","integer","character","character","numeric"), sep = group.file.sep), silent = TRUE)
-    if (class(group.info) == "try-error") {
+    if (class(group.info)[1] == "try-error") {
       stop("Error: cannot read group.file!")
     }
     group.info <- group.info[!duplicated(paste(group.info$group, group.info$chr, group.info$pos, group.info$ref, group.info$alt, sep = ":")), ]
     variant.id1 <- paste(group.info$chr, group.info$pos, group.info$ref, group.info$alt, sep = ":")
     variant.idx1 <- variant.idx[match(variant.id1, variant.id)]
     group.info$variant.idx <- variant.idx1
-    group.info$byte <- bgenVariant$BYTE[match(variant.id1, variant.id)]
     group.info$flip <- 0
     if(auto.flip) {
       cat("Automatic allele flipping enabled...\nVariants matching alt/ref but not ref/alt alleles will also be included, with flipped effects\n")
@@ -605,6 +603,7 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
       group.info$variant.idx[!is.na(variant.idx2)] <- variant.idx2[!is.na(variant.idx2)]
       rm(variant.id2, variant.idx2)
     }
+    ptr = bgenVariant$fbytes
     rm(variant.id, variant.id1, variant.idx1, bgenVariant); gc()
     group.info <- subset(group.info, !is.na(variant.idx))
     groups <- unique(group.info$group)
@@ -620,29 +619,410 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
     }
     
     if (ncores > 1) {
-      n.groups <- n.groups.all
-      weight <- group.info$weight
-      group.info <- group.info[,!(colnames(group.info) %in% c("weight"))]
-      
       doMC::registerDoMC(cores = ncores)
       
-      t_idx <- split(1:n.groups.all, cut(seq_along(1:n.groups.all), ncores, labels = FALSE))
-      out <- foreach(i=1:ncores, .combine = rbind, .multicombine = TRUE, .inorder=FALSE, .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
-        if (bgenInfo$LayoutFlag == 2) {
-          .Call("magee_bgen13", as.numeric(residuals), null.obj, geno.file,  MAF.range[1], MAF.range[2], miss.cutoff, missing.method, is.null(null.obj$P), length(t_idx[[i]]), MF, MV, IF, IV, JD, JF, JV, group.info, group.idx.start[t_idx[[i]]], group.idx.end[t_idx[[i]]], weight, method, MAF.weights.beta[1], MAF.weights.beta[2], strata.list, select, bgenInfo$N, bgenInfo$CompressionFlag, 0)
-        } else {
-          stop("BGEN v1.1 is currently unsupported.")
+      ncores <- min(c(ncores, parallel::detectCores(logical = TRUE)))
+      if(ncores > 1) {
+        doMC::registerDoMC(cores = ncores)
+        n.groups.percore <- (n.groups.all-1) %/% ncores + 1
+        n.groups.percore_1 <- n.groups.percore * ncores - n.groups.all
+        b <- NULL
+        out <- foreach(b=1:ncores, .combine=rbind, .multicombine = TRUE, .inorder=FALSE, .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
+          idx <- if(b <= n.groups.percore_1) ((b-1)*(n.groups.percore-1)+1):(b*(n.groups.percore-1)) else (n.groups.percore_1*(n.groups.percore-1)+(b-n.groups.percore_1-1)*n.groups.percore+1):(n.groups.percore_1*(n.groups.percore-1)+(b-n.groups.percore_1)*n.groups.percore)
+          n.groups <- length(idx)
+          SeqArray::seqSetFilter(gds, sample.id = sample.id, verbose = FALSE)
+          n.variants <- rep(0,n.groups)
+          miss.min <- rep(NA,n.groups)
+          miss.mean <- rep(NA, n.groups)
+          miss.max <- rep(NA, n.groups)
+          freq.min <- rep(NA, n.groups)
+          freq.mean <- rep(NA, n.groups)
+          freq.max <- rep(NA, n.groups)
+          freq.strata.min <- rep(NA, n.groups)
+          freq.strata.max <- rep(NA, n.groups)
+          if(MV | JV) MV.pval <- rep(NA, n.groups)
+          if(IV | JV) IV.pval <- rep(NA, n.groups)
+          if(JV) JV.pval <- rep(NA, n.groups)
+          if(MF | JF | JD) MF.pval <- rep(NA, n.groups)
+          if(IF | JF | JD) IF.pval <- rep(NA, n.groups)
+          if(JF) JF.pval <- rep(NA, n.groups)
+          if(JD) JD.pval <- rep(NA, n.groups)
+          if(!is.null(meta.file.prefix)) {
+            if(class(null.obj) == "glmmkin.multi") stop("Error: meta-analysis not supported yet for multiple phenotypes.")
+            if(.Platform$endian!="little") stop("Error: platform must be little endian.")
+            meta.file.score <- paste0(meta.file.prefix, ".score.", b)
+            meta.file.cov <- paste0(meta.file.prefix, ".cov.", b)
+            write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "G.SCORE", paste("K.SCORE.", 1:n.E, sep=""))), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE)
+            meta.file.cov.handle <- file(meta.file.cov, "wb")
+            writeBin(n.E, meta.file.cov.handle, size = 4)
+            writeBin(interaction, meta.file.cov.handle, size = 4)
+          }
+          for(i in 1:n.groups) {
+            tmp.idx <- group.idx.start[idx[i]]:group.idx.end[idx[i]]
+            tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
+            if (bgenInfo$Layout == 2) {
+              geno <- .Call("magee_bgen13", geno.file, tmp.group.info$variant.idx, ptr, select, bgenInfo$Compression)
+            } else {
+              geno <- .Call("magee_bgen11", geno.file, tmp.group.info$variant.idx, ptr, select, bgenInfo$Compression, bgenInfo$N)
+            }
+            miss <- colMeans(is.na(geno))
+            freq <- colMeans(geno, na.rm = TRUE)/2
+            include <- (miss <= miss.cutoff & ((freq >= MAF.range[1] & freq <= MAF.range[2]) | (freq >= 1-MAF.range[2] & freq <= 1-MAF.range[1])))
+            if(!is.null(strata)) { # E is not continuous
+              freq.tmp <- sapply(strata.list, function(x) colMeans(geno[x, , drop = FALSE], na.rm = TRUE)/2) # freq.tmp is a matrix, each column is a strata, and each row is a varirant 
+              if (length(dim(freq.tmp)) == 2) freq_strata <- apply(freq.tmp, 1, range) else freq_strata <- as.matrix(range(freq.tmp)) # freq_strata is the range of allele freq across strata.list
+              include <- include & !is.na(freq_strata[1,]) & !is.na(freq_strata[2,]) & freq_strata[1,] >= MAF.range[1] & freq_strata[2,] <= 1-MAF.range[1]
+              rm(freq.tmp)
+            }
+            n.p <- sum(include)
+            if(n.p == 0) next
+            tmp.group.info <- tmp.group.info[include, , drop = FALSE]
+            miss <- miss[include]
+            freq <- freq[include]
+            geno <- geno[, include, drop = FALSE]
+            if(!is.null(strata)) freq_strata <- freq_strata[, include, drop = FALSE]
+            N <- nrow(geno) - colSums(is.na(geno))
+            if(sum(tmp.group.info$flip) > 0) {
+              freq[tmp.group.info$flip==1] <- 1 - freq[tmp.group.info$flip==1]
+              geno[, tmp.group.info$flip==1] <- 2 - geno[, tmp.group.info$flip==1]
+              if(!is.null(strata)) freq_strata[, tmp.group.info$flip==1] <- 1 - freq_strata[, tmp.group.info$flip==1]
+            }
+            if(max(miss)>0) {
+              miss.idx <- which(is.na(geno))
+              geno[miss.idx] <- if(missing.method=="impute2mean") 2*freq[ceiling(miss.idx/nrow(geno))] else 0
+            }
+            if(IV | IF | JV | JF | JD) {
+              K <- do.call(cbind, sapply((1+qi):ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
+              SK <- as.vector(crossprod(K,residuals))
+            }
+            if(!is.null(interaction.covariates) && (IV | IF | JV | JF | JD)) {
+              geno <- cbind(geno, do.call(cbind, sapply(1:qi, function(xx) geno*E[,xx], simplify = FALSE), envir = environment()))
+            }
+            U <- as.vector(crossprod(geno, residuals))
+            if(class(null.obj) == "glmmkin.multi") {
+              geno <- Diagonal(n = n.pheno) %x% geno
+              if (IV | IF | JV | JF | JD) K <- Diagonal(n = n.pheno) %x% K
+            }
+            if(!is.null(null.obj$P)) {
+              PG <- crossprod(null.obj$P, geno)
+            } else {
+              GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
+              PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
+            }
+            V <- as.matrix(crossprod(geno, PG))
+            if(MV | MF | JV | JF | JD) c1 <- rep(1:n.p,n.pheno)+rep((0:(n.pheno-1))*n.p*(1+qi), each=n.p) # index for GPG and row.index for GPC
+            if(!is.null(interaction.covariates) && (JV | JF | JD)) {
+              c2 <- rep((n.p+1):(n.p*(1+qi)),n.pheno)+rep((0:(n.pheno-1))*n.p*(1+qi), each=n.p*qi) # index for CPC and col.index for GPC
+              CPC_i <- try(solve(V[c2,c2]), silent = TRUE)
+              if(class(CPC_i)[1] == "try-error") CPC_i <- MASS::ginv(solve(V[c2,c2]))
+              U.adj <- U[c1] - tcrossprod(tcrossprod(V[c1,c2],CPC_i),t(U[c2]))
+              V.adj <- V[c1,c1] - tcrossprod(tcrossprod(V[c1,c2],CPC_i),V[c1,c2])
+            }
+            if(IV | IF | JV | JF | JD) {
+              if(!is.null(null.obj$P)) {
+                KPK <- crossprod(K,crossprod(null.obj$P,K))
+              } else {
+                KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
+                KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
+              }
+              V_i <- try(solve(V), silent = TRUE)
+              if(class(V_i)[1] == "try-error") V_i <- MASS::ginv(V)
+              KPG <- crossprod(K,PG)
+              IV.U <- SK - tcrossprod(tcrossprod(KPG,V_i),t(U))
+              IV.V <- KPK - tcrossprod(tcrossprod(KPG,V_i),KPG)
+            }
+            if(!is.null(meta.file.prefix)) {
+              COV <-rbind(cbind(V, t(KPG)), cbind(KPG, KPK))
+              write.table(cbind(tmp.group.info[,c("group","chr","pos","ref","alt")], N, miss, freq, U, matrix(crossprod(K,residuals), nrow = n.p, ncol = n.E)), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE, append = TRUE)
+              writeBin(COV[lower.tri(COV, diag = TRUE)], meta.file.cov.handle, size = 4)
+            }
+            if(use.minor.allele) {
+              tmp.group.info$weight[freq > 0.5] <- -tmp.group.info$weight[freq > 0.5]
+              if(!is.null(strata)) freq_strata[, freq > 0.5] <- 1 - freq_strata[, freq > 0.5]
+              freq[freq > 0.5] <- 1 - freq[freq > 0.5]
+            }
+            weights <- rep(tmp.group.info$weight * MAF.weights.beta.fun(freq, MAF.weights.beta[1], MAF.weights.beta[2]), n.pheno)
+            n.variants[i] <- n.p
+            miss.min[i] <- min(miss)
+            miss.mean[i] <- mean(miss)
+            miss.max[i] <- max(miss)
+            freq.min[i] <- min(freq)
+            freq.mean[i] <- mean(freq)
+            freq.max[i] <- max(freq)
+            if(!is.null(strata)) {
+              freq.strata.min[i] <- min(freq_strata)
+              freq.strata.max[i] <- max(freq_strata)
+            }
+            if(MV | MF | JV | JF | JD) {
+              U <- U[c1]*weights
+              V <- t(V[c1,c1]*weights)*weights
+            }
+            if(!is.null(interaction.covariates) && (JV | JF | JD)) {
+              U.adj <- U.adj*weights
+              V.adj <- t(V.adj*weights)*weights
+            }
+            if(IV | IF | JV | JF | JD) {
+              IV.U <- IV.U*rep(weights, ei)
+              IV.V <- t(IV.V*rep(weights, ei))*rep(weights, ei)
+            }
+            if(MV | JV) MV.pval[i] <- tryCatch(.quad_pval(U = U, V = V, method = method), error = function(e) { NA })
+            if(IV | JV) IV.pval[i] <- tryCatch(.quad_pval(U = IV.U, V = IV.V, method = method), error = function(e) { NA })
+            if(JV && is.null(interaction.covariates)) JV.pval[i] <- tryCatch(fisher_pval(c(MV.pval[i], IV.pval[i])), error = function(e) { MV.pval[i] })
+            if(JV && !is.null(interaction.covariates)) {
+              MV.adj.pval <- tryCatch(.quad_pval(U = U.adj, V = V.adj, method = method), error = function(e) { NA })
+              JV.pval[i] <- tryCatch(fisher_pval(c(MV.adj.pval, IV.pval[i])), error = function(e) { MV.adj.pval })
+            }
+            if(MF | JF | JD) {
+              MF.BU <- sum(U)
+              MF.BV <- sum(V)
+              MF.Bp <- pchisq(MF.BU^2/MF.BV,df=1,lower.tail=FALSE)
+              V.rowSums <- rowSums(V)
+              MF.U <- U - V.rowSums * MF.BU / MF.BV
+              MF.V <- V - tcrossprod(V.rowSums) / MF.BV
+              if(MF.BV == 0 | mean(abs(MF.V)) < sqrt(.Machine$double.eps)) MF.p <- NA
+              else MF.p <- tryCatch(.quad_pval(U = MF.U, V = MF.V, method = method), error = function(e) { NA })
+              MF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp, MF.p)), error = function(e) { MF.Bp })
+            }
+            if((JF | JD) && !is.null(interaction.covariates)) {
+              MF.BU.adj <- sum(U.adj)
+              MF.BV.adj <- sum(V.adj)
+              MF.Bp.adj <- pchisq(MF.BU.adj^2/MF.BV.adj,df=1,lower.tail=FALSE)
+              V.adj.rowSums <- rowSums(V.adj)
+              MF.U.adj <- U.adj  - V.adj.rowSums * MF.BU.adj / MF.BV.adj 
+              MF.V.adj  <- V.adj  - tcrossprod(V.adj.rowSums) / MF.BV.adj 
+              if(MF.BV.adj == 0 | mean(abs(MF.V.adj)) < sqrt(.Machine$double.eps)) MF.adj.p <- NA
+              else MF.adj.p <- tryCatch(.quad_pval(U = MF.U.adj, V = MF.V.adj, method = method), error = function(e) { NA })
+              MF.adj.pval <- tryCatch(fisher_pval(c(MF.Bp.adj, MF.adj.p)), error = function(e) { MF.Bp.adj })
+            }
+            if(IF | JF | JD) {
+              IF.BU <- sum(IV.U)
+              IF.BV <- sum(IV.V)
+              IF.Bp <- pchisq(IF.BU^2/IF.BV,df=1,lower.tail=FALSE)
+              IV.V.rowSums <- rowSums(IV.V)
+              IF.U <- IV.U - IV.V.rowSums * IF.BU / IF.BV
+              IF.V <- IV.V - tcrossprod(IV.V.rowSums) / IF.BV
+              if(IF.BV == 0 | mean(abs(IF.V)) < sqrt(.Machine$double.eps)) IF.p <- NA
+              else IF.p <- tryCatch(.quad_pval(U = IF.U, V = IF.V, method = method), error = function(e) { NA })
+              IF.pval[i] <- tryCatch(fisher_pval(c(IF.Bp, IF.p)), error = function(e) { IF.Bp })
+            }
+            if(JF && is.null(interaction.covariates)) JF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp, MF.p, IF.Bp, IF.p)), error = function(e) { MF.Bp })
+            if(JF && !is.null(interaction.covariates)) JF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp.adj, MF.adj.p, IF.Bp, IF.p)), error = function(e) { MF.Bp.adj })
+            if(JD && is.null(interaction.covariates)) JD.pval[i] <- tryCatch(fisher_pval(c(MF.pval[i], IF.pval[i])), error = function(e) { MF.pval[i] })
+            if(JD && !is.null(interaction.covariates)) JD.pval[i] <- tryCatch(fisher_pval(c(MF.adj.pval, IF.pval[i])), error = function(e) { MF.adj.pval })
+            rm(geno)
+            if(Garbage.Collection) gc()
+          }
+        
+          if(!is.null(meta.file.prefix)) close(meta.file.cov.handle)
+          tmp.out <- data.frame(group=unique(group.info$group)[idx], n.variants=n.variants, miss.min=miss.min, miss.mean=miss.mean, miss.max=miss.max, freq.min=freq.min, freq.mean=freq.mean, freq.max=freq.max,freq.strata.min=freq.strata.min, freq.strata.max=freq.strata.max)
+          if(MV | JV) tmp.out$MV.pval <- MV.pval
+          if(MF | JF | JD) tmp.out$MF.pval <- MF.pval
+          if(IV | JV) tmp.out$IV.pval <- IV.pval
+          if(IF | JF | JD) tmp.out$IF.pval <- IF.pval
+          if(JV) tmp.out$JV.pval <- JV.pval
+          if(JF) tmp.out$JF.pval <- JF.pval
+          if(JD) tmp.out$JD.pval <- JD.pval
+          tmp.out
         }
       }
-      return(out[match(groups, out$group),])
     } else {
-      n.groups <- n.groups.all
-      weight <- group.info$weight
-      group.info <- group.info[,!(colnames(group.info) %in% c("weight"))]
-      out <- .Call("magee_bgen13", as.numeric(residuals), null.obj, geno.file, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, is.null(null.obj$P), n.groups, MF, MV, IF, IV, JD, JF, JV, group.info, group.idx.start, group.idx.end, weight, method, MAF.weights.beta[1], MAF.weights.beta[2], strata.list, select, bgenInfo$N, bgenInfo$CompressionFlag, 0)
+      n.groups   <- n.groups.all
+      n.variants <- rep(0,n.groups)
+      miss.min   <- rep(NA,n.groups)
+      miss.mean  <- rep(NA, n.groups)
+      miss.max   <- rep(NA, n.groups)
+      freq.min   <- rep(NA, n.groups)
+      freq.mean  <- rep(NA, n.groups)
+      freq.max   <- rep(NA, n.groups)
+      freq.strata.min <- rep(NA, n.groups)
+      freq.strata.max <- rep(NA, n.groups)
+      if(MV | JV) MV.pval <- rep(NA, n.groups)
+      if(IV | JV) IV.pval <- rep(NA, n.groups)
+      if(JV) JV.pval      <- rep(NA, n.groups)
+      if(MF | JF | JD) MF.pval <- rep(NA, n.groups)
+      if(IF | JF | JD) IF.pval <- rep(NA, n.groups)
+      if(JF) JF.pval <- rep(NA, n.groups)
+      if(JD) JD.pval <- rep(NA, n.groups)
+      if(!is.null(meta.file.prefix)) {
+        if(class(null.obj) == "glmmkin.multi") stop("Error: meta-analysis not supported yet for multiple phenotypes.")
+        if(.Platform$endian!="little") stop("Error: platform must be little endian.")
+        meta.file.score <- paste0(meta.file.prefix, ".score.1")
+        meta.file.cov <- paste0(meta.file.prefix, ".cov.1")
+        write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "G.SCORE", paste("K.SCORE.", 1:n.E, sep=""))), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE)
+        meta.file.cov.handle <- file(meta.file.cov, "wb")
+        writeBin(n.E, meta.file.cov.handle, size = 4)
+        writeBin(interaction, meta.file.cov.handle, size = 4)
+      }
       
+      for(i in 1:n.groups) {
+        tmp.idx <- group.idx.start[i]:group.idx.end[i]
+        tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
+        
+        if (bgenInfo$Layout == 2) {
+          geno <- .Call("magee_bgen13", geno.file, tmp.group.info$variant.idx, ptr, select, bgenInfo$Compression)
+        } else {
+          geno <- .Call("magee_bgen11", geno.file, tmp.group.info$variant.idx, ptr, select, bgenInfo$Compression, bgenInfo$N)
+        }
+        
+        miss <- colMeans(is.na(geno))
+        freq <- colMeans(geno, na.rm = TRUE)/2
+        include <- (miss <= miss.cutoff & ((freq >= MAF.range[1] & freq <= MAF.range[2]) | (freq >= 1-MAF.range[2] & freq <= 1-MAF.range[1])))
+        if(!is.null(strata)) { # E is not continuous
+          freq.tmp <- sapply(strata.list, function(x) colMeans(geno[x, , drop = FALSE], na.rm = TRUE)/2) # freq.tmp is a matrix, each column is a strata, and each row is a varirant 
+          if (length(dim(freq.tmp)) == 2) freq_strata <- apply(freq.tmp, 1, range) else freq_strata <- as.matrix(range(freq.tmp)) # freq_strata is the range of allele freq across strata.list
+          include <- include & !is.na(freq_strata[1,]) & !is.na(freq_strata[2,]) & freq_strata[1,] >= MAF.range[1] & freq_strata[2,] <= 1-MAF.range[1]
+          rm(freq.tmp)
+        }
+  
+        n.p <- sum(include)
+        if(n.p == 0) next
+        tmp.group.info <- tmp.group.info[include, , drop = FALSE]
+        miss <- miss[include]
+        freq <- freq[include]
+        geno <- geno[, include, drop = FALSE]
+        if(!is.null(strata)) freq_strata <- freq_strata[, include, drop = FALSE]
+        N <- nrow(geno) - colSums(is.na(geno))
+        if(sum(tmp.group.info$flip) > 0) {
+          freq[tmp.group.info$flip==1] <- 1 - freq[tmp.group.info$flip==1]
+          geno[, tmp.group.info$flip==1] <- 2 - geno[, tmp.group.info$flip==1]
+          if(!is.null(strata)) freq_strata[, tmp.group.info$flip==1] <- 1 - freq_strata[, tmp.group.info$flip==1]
+        }
+        if(max(miss)>0) {
+          miss.idx <- which(is.na(geno))
+          geno[miss.idx] <- if(missing.method=="impute2mean") 2*freq[ceiling(miss.idx/nrow(geno))] else 0
+        }
+        if(IV | IF | JV | JF | JD) {
+          K <- do.call(cbind, sapply((1+qi):ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
+          SK <- as.vector(crossprod(K,residuals))
+        }
+        if(!is.null(interaction.covariates) && (IV | IF | JV | JF | JD)) {
+          geno <- cbind(geno, do.call(cbind, sapply(1:qi, function(xx) geno*E[,xx], simplify = FALSE), envir = environment()))
+        }
+        U <- as.vector(crossprod(geno, residuals))
+        if(class(null.obj) == "glmmkin.multi") {
+          geno <- Diagonal(n = n.pheno) %x% geno
+          if (IV | IF | JV | JF | JD) K <- Diagonal(n = n.pheno) %x% K
+        }
+        if(!is.null(null.obj$P)) {
+          PG <- crossprod(null.obj$P, geno)
+        } else {
+          GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
+          PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
+        }
+        V <- as.matrix(crossprod(geno, PG))
+        if(MV | MF | JV | JF | JD) c1 <- rep(1:n.p,n.pheno)+rep((0:(n.pheno-1))*n.p*(1+qi), each=n.p) # index for GPG and row.index for GPC
+        if(!is.null(interaction.covariates) && (JV | JF | JD)) {
+          c2 <- rep((n.p+1):(n.p*(1+qi)),n.pheno)+rep((0:(n.pheno-1))*n.p*(1+qi), each=n.p*qi) # index for CPC and col.index for GPC
+          CPC_i <- try(solve(V[c2,c2]), silent = TRUE)
+          if(class(CPC_i)[1] == "try-error") CPC_i <- MASS::ginv(V[c2,c2])
+          U.adj <- U[c1] - tcrossprod(tcrossprod(V[c1,c2],CPC_i),t(U[c2]))
+          V.adj <- V[c1,c1] - tcrossprod(tcrossprod(V[c1,c2],CPC_i),V[c1,c2])
+        }
+        if(IV | IF | JV | JF | JD) {
+          if(!is.null(null.obj$P)) {
+            KPK <- crossprod(K,crossprod(null.obj$P,K))
+          } else {
+            KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
+            KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
+          }
+          V_i <- try(solve(V), silent = TRUE)
+          if(class(V_i)[1] == "try-error") V_i <- MASS::ginv(V)
+          KPG <- crossprod(K,PG)
+          IV.U <- SK - tcrossprod(tcrossprod(KPG,V_i),t(U))
+          IV.V <- KPK - tcrossprod(tcrossprod(KPG,V_i),KPG)
+        }
+        if(!is.null(meta.file.prefix)) {
+          COV <-rbind(cbind(V, t(KPG)), cbind(KPG, KPK))
+          write.table(cbind(tmp.group.info[,c("group","chr","pos","ref","alt")], N, miss, freq, U, matrix(crossprod(K,residuals), nrow = n.p, ncol = n.E)), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE, append = TRUE)
+          writeBin(COV[lower.tri(COV, diag = TRUE)], meta.file.cov.handle, size = 4)
+        }
+        if(use.minor.allele) {
+          tmp.group.info$weight[freq > 0.5] <- -tmp.group.info$weight[freq > 0.5]
+          if(!is.null(strata)) freq_strata[, freq > 0.5] <- 1 - freq_strata[, freq > 0.5]
+          freq[freq > 0.5] <- 1 - freq[freq > 0.5]
+        }
+        weights <- rep(tmp.group.info$weight * MAF.weights.beta.fun(freq, MAF.weights.beta[1], MAF.weights.beta[2]), n.pheno)
+        n.variants[i] <- n.p
+        miss.min[i] <- min(miss)
+        miss.mean[i] <- mean(miss)
+        miss.max[i] <- max(miss)
+        freq.min[i] <- min(freq)
+        freq.mean[i] <- mean(freq)
+        freq.max[i] <- max(freq)
+        if(!is.null(strata)) {
+          freq.strata.min[i] <- min(freq_strata)
+          freq.strata.max[i] <- max(freq_strata)
+        }
+        if(MV | MF | JV | JF | JD) {
+          U <- U[c1]*weights
+          V <- t(V[c1,c1]*weights)*weights
+        }
+        if(!is.null(interaction.covariates) && (JV | JF | JD)) {
+          U.adj <- U.adj*weights
+          V.adj <- t(V.adj*weights)*weights
+        }
+        if(IV | IF | JV | JF | JD) {
+          IV.U <- IV.U*rep(weights, ei)
+          IV.V <- t(IV.V*rep(weights, ei))*rep(weights, ei)
+        }
+        if(MV | JV) MV.pval[i] <- tryCatch(.quad_pval(U = U, V = V, method = method), error = function(e) { NA })
+        if(IV | JV) IV.pval[i] <- tryCatch(.quad_pval(U = IV.U, V = IV.V, method = method), error = function(e) { NA })
+        if(JV && is.null(interaction.covariates)) JV.pval[i] <- tryCatch(fisher_pval(c(MV.pval[i], IV.pval[i])), error = function(e) { MV.pval[i] })
+        if(JV && !is.null(interaction.covariates)) {
+          MV.adj.pval <- tryCatch(.quad_pval(U = U.adj, V = V.adj, method = method), error = function(e) { NA })
+          JV.pval[i] <- tryCatch(fisher_pval(c(MV.adj.pval, IV.pval[i])), error = function(e) { MV.adj.pval })
+        }
+        if(MF | JF | JD) {
+          MF.BU <- sum(U)
+          MF.BV <- sum(V)
+          MF.Bp <- pchisq(MF.BU^2/MF.BV,df=1,lower.tail=FALSE)
+          V.rowSums <- rowSums(V)
+          MF.U <- U - V.rowSums * MF.BU / MF.BV
+          MF.V <- V - tcrossprod(V.rowSums) / MF.BV
+          if(MF.BV == 0 | mean(abs(MF.V)) < sqrt(.Machine$double.eps)) MF.p <- NA
+          else MF.p <- tryCatch(.quad_pval(U = MF.U, V = MF.V, method = method), error = function(e) { NA })
+          MF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp, MF.p)), error = function(e) { MF.Bp })
+        }
+        if((JF | JD) && !is.null(interaction.covariates)) {
+          MF.BU.adj <- sum(U.adj)
+          MF.BV.adj <- sum(V.adj)
+          MF.Bp.adj <- pchisq(MF.BU.adj^2/MF.BV.adj,df=1,lower.tail=FALSE)
+          V.adj.rowSums <- rowSums(V.adj)
+          MF.U.adj <- U.adj  - V.adj.rowSums * MF.BU.adj / MF.BV.adj 
+          MF.V.adj  <- V.adj  - tcrossprod(V.adj.rowSums) / MF.BV.adj 
+          if(MF.BV.adj == 0 | mean(abs(MF.V.adj)) < sqrt(.Machine$double.eps)) MF.adj.p <- NA
+          else MF.adj.p <- tryCatch(.quad_pval(U = MF.U.adj, V = MF.V.adj, method = method), error = function(e) { NA })
+          MF.adj.pval <- tryCatch(fisher_pval(c(MF.Bp.adj, MF.adj.p)), error = function(e) { MF.Bp.adj })
+        }
+        if(IF | JF | JD) {
+          IF.BU <- sum(IV.U)
+          IF.BV <- sum(IV.V)
+          IF.Bp <- pchisq(IF.BU^2/IF.BV,df=1,lower.tail=FALSE)
+          IV.V.rowSums <- rowSums(IV.V)
+          IF.U <- IV.U - IV.V.rowSums * IF.BU / IF.BV
+          IF.V <- IV.V - tcrossprod(IV.V.rowSums) / IF.BV
+          if(IF.BV == 0 | mean(abs(IF.V)) < sqrt(.Machine$double.eps)) IF.p <- NA
+          else IF.p <- tryCatch(.quad_pval(U = IF.U, V = IF.V, method = method), error = function(e) { NA })
+          IF.pval[i] <- tryCatch(fisher_pval(c(IF.Bp, IF.p)), error = function(e) { IF.Bp })
+        }
+        if(JF && is.null(interaction.covariates)) JF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp, MF.p, IF.Bp, IF.p)), error = function(e) { MF.Bp })
+        if(JF && !is.null(interaction.covariates)) JF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp.adj, MF.adj.p, IF.Bp, IF.p)), error = function(e) { MF.Bp.adj })
+        if(JD && is.null(interaction.covariates)) JD.pval[i] <- tryCatch(fisher_pval(c(MF.pval[i], IF.pval[i])), error = function(e) { MF.pval[i] })
+        if(JD && !is.null(interaction.covariates)) JD.pval[i] <- tryCatch(fisher_pval(c(MF.adj.pval, IF.pval[i])), error = function(e) { MF.adj.pval })
+        rm(geno, K)
+        if(Garbage.Collection) gc()
+      }
+      if(!is.null(meta.file.prefix)) close(meta.file.cov.handle)
+      out <- data.frame(group=unique(group.info$group), n.variants=n.variants, miss.min=miss.min, miss.mean=miss.mean, miss.max=miss.max, freq.min=freq.min, freq.mean=freq.mean, freq.max=freq.max,freq.strata.min=freq.strata.min, freq.strata.max=freq.strata.max)
+      if(MV | JV) out$MV.pval <- MV.pval
+      if(MF | JF | JD) out$MF.pval <- MF.pval
+      if(IV | JV) out$IV.pval <- IV.pval
+      if(IF | JF | JD) out$IF.pval <- IF.pval
+      if(JV) out$JV.pval <- JV.pval
+      if(JF) out$JF.pval <- JF.pval
+      if(JD) out$JD.pval <- JD.pval
     }
-    return(out)
+    return(out[match(groups, out$group),])
   }
 }
 

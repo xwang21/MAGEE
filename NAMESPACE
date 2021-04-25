@@ -10,8 +10,7 @@ importFrom("CompQuadForm", "davies", "liu")
 importFrom("SeqArray", "seqOpen", "seqGetData", "seqClose", "seqSetFilter")
 importFrom("SeqVarTools", "missingGenotypeRate", "alleleFrequency", "altDosage")
 importFrom("GMMAT", "glmmkin")
-
+export("glmmkin")
 useDynLib(MAGEE, .registration = TRUE, .fixes = "C_")
-
 export(MAGEE, glmm.gei, MAGEE.prep, MAGEE.lowmem)
 

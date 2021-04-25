@@ -47,8 +47,10 @@
 #include <RcppArmadillo.h>
 #include <R.h>
 #include <Rmath.h>
+#include <Rcpp.h>
 #include "read_bgen.h"
 #include "zstd-1.4.5/lib/zstd.h"
+#include "libdeflate-1.7/libdeflate.h"
 using namespace std;
 using namespace arma;
 using namespace Rcpp;
@@ -67,7 +69,7 @@ extern "C"
     
   SEXP glmm_gei_bgen13(SEXP res_in, SEXP nullObj_in, SEXP bgenfile_in, SEXP outfile_in, SEXP center_in, SEXP minmaf_in, SEXP maxmaf_in, SEXP missrate_in, SEXP miss_method_in, SEXP nperbatch_in, 
                        SEXP ei_in, SEXP qi_in, SEXP isNullP_in, SEXP isNullEC_in, SEXP strata_in,
-                       SEXP select_in, SEXP begin_in, SEXP end_in, SEXP pos_in, SEXP nbgen_in, SEXP compression_in, SEXP isMultiThread_in) {
+                       SEXP select_in, SEXP begin_in, SEXP end_in, SEXP pos_in, SEXP nbgen_in, SEXP compression_in, SEXP metaOutput_in) {
     try{
       
       bool isNullP = Rcpp::as<bool>(isNullP_in);
@@ -114,7 +116,7 @@ extern "C"
       const double maxmaf = Rcpp::as<double>(maxmaf_in);
       const double missrate = Rcpp::as<double>(missrate_in);
       const char miss_method = Rcpp::as<char>(miss_method_in);
-      
+      const bool metaOutput = Rcpp::as<bool>(metaOutput_in);
       string bgenfile = Rcpp::as<string>(bgenfile_in);
       string outfile  = Rcpp::as<string>(outfile_in);
       
@@ -131,9 +133,9 @@ extern "C"
       //const double tol = 1e-5;
       size_t ncount, nmiss, npbidx = 0;
       double compute_time = 0.0;
-      ofstream writefile(outfile.c_str(), ofstream::out);
+      ofstream writefile(outfile.c_str(), std::ios_base::app);
       
-      
+      struct libdeflate_decompressor* decompressor = libdeflate_alloc_decompressor();
 
       uint maxLA = 65536;
       std::vector<uchar> zBuf12;
@@ -151,21 +153,6 @@ extern "C"
       FILE* fp = fopen(bgenfile.c_str(), "rb");
       fseek(fp, byte, SEEK_SET);
       
-      bool isMultiThread = Rcpp::as<bool>(isMultiThread_in);
-      if (!isMultiThread){
-        writefile << "SNP\tRSID\tCHR\tPOS\tREF\tALT\tN\tMISSRATE\tAF\tAF.strata.min\tAF.strata.max\tBETA.MAIN\tSE.MAIN\t";
-        
-        for (int e = 1; e <= ei; e++) {
-          writefile << "BETA.INT." << e << "\t";
-        }
-        for (int e = 1; e <= ei; e++) {
-          for (int ee = 1; ee <= ei; ee++) {
-            writefile << "VAR.INT." << e << "." << ee << "\t";
-          }
-        }
-        writefile << "PVAL.MAIN\tSTAT.INT\tPVAL.INT\tPVAL.JOINT\n";
-      }
-      
       int ret;
       for (uint m = begin; m < end; m++) {
         stringstream writeout;
@@ -174,6 +161,8 @@ extern "C"
         ret = fread(&LS, 2, 1, fp);
         ret = fread(snpID, 1, LS, fp); 
         snpID[LS] = '\0';
+        string str_snpID = "NA";
+        if (LS != 0) { str_snpID = string(snpID); }
         
         ushort LR; 
         ret = fread(&LR, 2, 1, fp);
@@ -213,10 +202,10 @@ extern "C"
           uint dLen; ret = fread(&dLen, 4, 1, fp);
           ret = fread(&zBuf12[0], 1, cLen - 4, fp);
           shortBuf12.resize(dLen);
-          uLongf destLen = dLen;
           
-          if (uncompress(&shortBuf12[0], &destLen, &zBuf12[0], cLen-4) != Z_OK || destLen != dLen) {
-			      Rcout << "Error reading bgen file: Decompressing variant block failed with zLib. \n"; return R_NilValue;
+          uLongf destLen = dLen;
+          if (libdeflate_zlib_decompress(decompressor, &zBuf12[0], cLen - 4, &shortBuf12[0], destLen, NULL) != LIBDEFLATE_SUCCESS) {
+            Rcpp::stop("Decompressing " + string(rsID) + "genotype block failed with libdeflate.");
           }
           bufAt = &shortBuf12[0];
         }
@@ -346,7 +335,7 @@ extern "C"
        double missRate = nmiss / (double)(n * 1.0);
        
        if (skip_strata) {
-         writeout << snpID << "\t" << rsID << "\t" << chrStr << "\t" << physpos_tmp << "\t" << allele1 << "\t" << allele0 << "\t" << (n-nmiss) << "\t" << missRate << "\t"<< gmean/2.0 << "\t" << "NA\tNA\t";
+         writeout << str_snpID << "\t" << rsID << "\t" << chrStr << "\t" << physpos_tmp << "\t" << allele1 << "\t" << allele0 << "\t" << (n-nmiss) << "\t" << missRate << "\t"<< gmean/2.0 << "\t" << "NA\tNA\t";
        } else {
          std::vector<double> strata_range(strataList_size);
          for (int strata_idx = 0; strata_idx < strataList_size; strata_idx++) {
@@ -381,18 +370,6 @@ extern "C"
   
        npbidx++;
        
-       vec V_i;
-       mat IV_U;
-       mat IV_V_i;
-       vec BETA_MAIN;
-       vec STAT_MAIN;
-       vec STAT_INT;
-       vec SE_MAIN;
-       mat BETA_INT;
-  
-       vec V_MAIN_adj;
-       vec BETA_MAIN_adj; 
-       vec STAT_MAIN_adj; 
     
        if((m+1 == end) || (npbidx == npb)) {
           
@@ -403,10 +380,22 @@ extern "C"
            snp_idx = snp_idx.rows(0,npbidx-1);
          }
          G = G.cols(snp_idx);
+         int ng = G.n_cols; 
          
-         int ng = 0;
+  
+         mat IV_U;
+         mat IV_V_i;
+         vec BETA_MAIN;
+         vec STAT_INT;
+         vec SE_MAIN;
+         mat BETA_INT;
+         vec PVAL_MAIN(ng);
+         PVAL_MAIN.fill(NA_REAL);
+         vec PVAL_INT(ng);
+         PVAL_INT.fill(NA_REAL);
+         vec PVAL_JOINT(ng);
+         PVAL_JOINT.fill(NA_REAL);
          if (G.n_cols != 0) {
-           ng = G.n_cols;
            
            mat K;
            for (int ei_idx = 0; ei_idx < ei; ei_idx++) {
@@ -434,6 +423,7 @@ extern "C"
             mat GPG = (G.t() * PG)  % kron(ones(1+qi, 1+qi), mat(ng, ng, fill::eye));
             mat GPG_i = inv(GPG);
             
+            mat V_i;
             if (isNullEC) {
               V_i = diagvec(GPG_i);
             } else {
@@ -449,16 +439,32 @@ extern "C"
               }
             }
             
-            V_MAIN_adj = diagvec(GPG_i);
-            V_MAIN_adj = V_MAIN_adj.rows(0, ng-1);
-            BETA_MAIN_adj = GPG_i.t() * U;
-            BETA_MAIN_adj = BETA_MAIN_adj.rows(0, ng-1);
+            
+            vec V_MAIN_adj = diagvec(GPG_i);
+            V_MAIN_adj     = V_MAIN_adj.rows(0, ng-1);
+            
+            vec BETA_MAIN_adj = GPG_i.t() * U; 
+            BETA_MAIN_adj     = BETA_MAIN_adj.rows(0, ng-1);
+            
+            vec STAT_MAIN_adj(ng);
+            STAT_MAIN_adj.fill(NA_REAL);
+            for (size_t s = 0; s < V_MAIN_adj.size(); s++) {
+              if (V_MAIN_adj[s] > 0) {
+                STAT_MAIN_adj[s] = (BETA_MAIN_adj[s] * BETA_MAIN_adj[s]) / V_MAIN_adj[s];
+              }
+            } 
             
             BETA_MAIN = V_i % U.rows(0,ng-1);
             SE_MAIN = sqrt(V_i);
-            STAT_MAIN = BETA_MAIN % U.rows(0,ng-1);
-            mat KPK;
+            vec STAT_MAIN = BETA_MAIN % U.rows(0,ng-1);
+            for (size_t s = 0; s < STAT_MAIN.size(); s++) {
+              if (STAT_MAIN[s] > 0) {
+                PVAL_MAIN[s] = Rf_pchisq(STAT_MAIN[s], 1, 0, 0);
+              }
+            }
             
+            
+            mat KPK;
             if (!isNullP) {
               KPK = K.t() * (P.t() * K);
             } else {
@@ -469,12 +475,19 @@ extern "C"
             KPK = KPK % kron(ones(ei, ei), mat(ng, ng, fill::eye));
             mat KPG = (K.t() * PG) % kron(ones(ei, 1+qi), mat(ng, ng, fill::eye));
           
+          
             if (isNullEC) {
               mat IV_U_kron = kron(ones(ei,1), mat(ng, ng, fill::eye));
               IV_U = IV_U_kron.each_col() % ((K.t() * res) - (KPG * BETA_MAIN));
               IV_V_i = inv(KPK - (KPG * (KPG * GPG_i.t()).t()));
               BETA_INT = (IV_V_i.t() * IV_U);
               STAT_INT = diagvec(IV_U.t() * BETA_INT);
+              for (size_t s = 0; s < npbidx; s++) {
+                PVAL_INT[s] = Rf_pchisq(STAT_INT[s], ei, 0, 0);
+                if (is_finite(PVAL_MAIN[s])) {
+                  PVAL_JOINT[s] = Rf_pchisq(STAT_MAIN[s] + STAT_INT[s], 1+ei, 0, 0);
+                }
+              }
               
             } else {
               mat IV_U_kron = kron(ones(ei,1), mat(ng, ng, fill::eye));
@@ -482,13 +495,21 @@ extern "C"
               IV_V_i = inv(KPK - (KPG * (KPG * GPG_i.t()).t()));
               BETA_INT = (IV_V_i.t() * IV_U);
               STAT_INT = diagvec(IV_U.t() * BETA_INT);
+              for (size_t s = 0; s < npbidx; s++) {
+                PVAL_INT[s] = Rf_pchisq(STAT_INT[s], ei, 0, 0);
+                if (is_finite(PVAL_MAIN[s])) {
+                  PVAL_JOINT[s] = Rf_pchisq(STAT_MAIN[s] + STAT_INT[s], 1+ei, 0, 0);
+                }
+              }
             }
+            
+          
+          
           
          }
           
          uvec b_idx = regspace<uvec>(0, ng, (ei-1) * ng);
-         
-         int p_idx = 0;
+         int ng_j = 0;
          for(size_t j=0; j<npbidx; ++j) {
            if(snp_skip[j] == 1) { // monomorphic, missrate, MAF
              writefile << tmpout[j] << "NA\tNA\tNA\tNA\tNA\tNA";
@@ -498,53 +519,40 @@ extern "C"
              writefile << "\n";
            } 
            else {
-             writefile << tmpout[j] << BETA_MAIN[p_idx] << "\t" << SE_MAIN[p_idx] << "\t";
-
-             // Beta Int
-             for (int b=0; b < ei; b++) {
-               int row = b_idx[b] + p_idx;
-               writefile << BETA_INT(row, p_idx) << "\t";
-             }
+             writefile << tmpout[j] << BETA_MAIN[ng_j] << "\t" << SE_MAIN[ng_j] << "\t";
+  
+             if (metaOutput) {
+               // Beta Int
+               for (int b=0; b < ei; b++) {
+                 int row = b_idx[b] + ng_j ;
+                 writefile << BETA_INT(row, ng_j ) << "\t";
+               }
+               
+               // Var
+               for (int b=0; b < ei; b++) {
+                 int col = b_idx[b] + ng_j ;
+                 for (int d=0; d < ei; d++) {
+                   if(b == d) {
+                     int row = b_idx[d] + ng_j ;
+                     writefile << IV_V_i(row, col) << "\t";
+                   }
+                 }
+               }
+               
+               // Cov
+               for (int b=0; b < ei; b++) {
+                 int col = b_idx[b] + ng_j ;
+                 for (int d=0; d < ei; d++) {
+                   if(d > b) {
+                     int row = b_idx[d] + ng_j ;
+                     writefile << IV_V_i(row, col) << "\t";
+                   }
+                 }
+               }
              
-             // Var Int
-             for (int b=0; b < ei; b++) {
-               int col = b_idx[b] + p_idx;
-               for (int d=0; d < ei; d++) {
-                 int row = b_idx[d] + p_idx;
-                 writefile << IV_V_i(row, col) << "\t";
-               }
              }
-             
-             if (isNullEC) {
-               if (V_i[p_idx] > 0) {
-                 double p_m = Rf_pchisq(STAT_MAIN[p_idx], 1, 0, 0);
-                 double p_i = Rf_pchisq(STAT_INT[p_idx], ei, 0, 0);
-                 double p_j = Rf_pchisq(STAT_MAIN[p_idx] + STAT_INT[p_idx], 1+ei, 0, 0);
-                 writefile << p_m << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << p_j << "\n";
-               } 
-               else {
-                 double p_i = Rf_pchisq(STAT_INT[j], ei, 0, 0);
-                 writefile  << "NA" << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << "NA" << "\n";
-               }
-             } else {
-               if (V_i[p_idx] > 0) {
-                 double p_m = Rf_pchisq(STAT_MAIN[p_idx], 1, 0, 0);
-                 double p_i = Rf_pchisq(STAT_INT[p_idx], ei, 0, 0);
-                 writefile << p_m << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t";
-               } 
-               else {
-                 double p_i = Rf_pchisq(STAT_INT[j], ei, 0, 0);
-                 writefile  << "NA" << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t";
-               }
-               if (V_MAIN_adj[p_idx > 0]) {
-                 double STAT_MAIN_adj = (BETA_MAIN_adj[p_idx] * BETA_MAIN_adj[p_idx])/V_MAIN_adj[p_idx];
-                 double p_j = Rf_pchisq(STAT_MAIN_adj+ STAT_INT[p_idx], 1+ei, 0, 0);
-                 writefile  << p_j << "\n";
-               } else {
-                 writefile  << "NA" << "\n";
-               }
-             }
-             p_idx++;
+             writefile << PVAL_MAIN[ng_j] << "\t" << STAT_INT[ng_j] << "\t" << PVAL_INT[ng_j] << "\t" <<  PVAL_JOINT[ng_j] << "\n";
+             ng_j++;
            }
          }
           
@@ -565,7 +573,9 @@ extern "C"
      delete [] allele1;
      writefile.close();
      writefile.clear();
+     libdeflate_free_decompressor(decompressor);
      fclose(fp);
+     
      return wrap(compute_time);
     } 
      catch( std::exception &ex ) {
@@ -578,7 +588,7 @@ extern "C"
   
   SEXP glmm_gei_bgen11(SEXP res_in, SEXP nullObj_in, SEXP bgenfile_in, SEXP outfile_in, SEXP center_in, SEXP minmaf_in, SEXP maxmaf_in, SEXP missrate_in, SEXP miss_method_in, SEXP nperbatch_in, 
                        SEXP ei_in, SEXP qi_in, SEXP isNullP_in, SEXP isNullEC_in, SEXP strata_in,
-                       SEXP select_in, SEXP begin_in, SEXP end_in, SEXP pos_in, SEXP nbgen_in, SEXP compression_in, SEXP isMultiThread_in) {
+                       SEXP select_in, SEXP begin_in, SEXP end_in, SEXP pos_in, SEXP nbgen_in, SEXP compression_in, SEXP metaOutput_in) {
     try{
       
       bool isNullP = Rcpp::as<bool>(isNullP_in);
@@ -608,7 +618,7 @@ extern "C"
       }
       
       if (!isNullP) {
-        arma::mat P = as<arma::mat>(null_obj["P"]);
+        P = as<arma::mat>(null_obj["P"]);
         (void)Sigma_i; (void)Sigma_iX; (void)cov;
         
       } else {
@@ -618,7 +628,6 @@ extern "C"
         (void)P;
       }
       
-      
       Rcpp::NumericVector res_r(res_in);
       arma::vec res(res_r.begin(), res_r.size(), false);
       const char center = Rcpp::as<char>(center_in);
@@ -626,7 +635,7 @@ extern "C"
       const double maxmaf = Rcpp::as<double>(maxmaf_in);
       const double missrate = Rcpp::as<double>(missrate_in);
       const char miss_method = Rcpp::as<char>(miss_method_in);
-      
+      const bool metaOutput = Rcpp::as<bool>(metaOutput_in);
       string bgenfile = Rcpp::as<string>(bgenfile_in);
       string outfile  = Rcpp::as<string>(outfile_in);
       
@@ -643,9 +652,9 @@ extern "C"
       //const double tol = 1e-5;
       size_t ncount, nmiss, npbidx = 0;
       double compute_time = 0.0;
-      ofstream writefile(outfile.c_str(), ofstream::out);
+      ofstream writefile(outfile.c_str(), std::ios_base::app);
       
-      
+      struct libdeflate_decompressor* decompressor = libdeflate_alloc_decompressor();
       
       uint maxLA = 65536;
       char* snpID   = new char[maxLA + 1];
@@ -656,7 +665,7 @@ extern "C"
       uint Nbgen = Rcpp::as<uint>(nbgen_in);
       uint compression = Rcpp::as<uint>(compression_in);
       std::vector<uchar> zBuf11;
-      std::vector<uchar> shortBuf11;
+      std::vector<uint16_t> shortBuf11;
       uLongf destLen1 = 6 * Nbgen;
       zBuf11.resize(destLen1);
       shortBuf11.resize(destLen1);
@@ -667,21 +676,6 @@ extern "C"
       FILE* fp = fopen(bgenfile.c_str(), "rb");
       fseek(fp, byte, SEEK_SET);
       
-      bool isMultiThread = Rcpp::as<bool>(isMultiThread_in);
-      
-      if (!isMultiThread){
-        writefile << "SNP\tRSID\tCHR\tPOS\tREF\tALT\tN\tMISSRATE\tAF\tAF.strata.min\tAF.strata.max\tBETA.MAIN\tSE.MAIN\t";
-        
-        for (int e = 1; e <= ei; e++) {
-          writefile << "BETA.INT." << e << "\t";
-        }
-        for (int e = 1; e <= ei; e++) {
-          for (int ee = 1; ee <= ei; ee++) {
-            writefile << "VAR.INT." << e << "." << ee << "\t";
-          }
-        }
-        writefile << "PVAL.MAIN\tSTAT.INT\tPVAL.INT\tPVAL.JOINT\n";
-      }
       
       int ret;
       
@@ -693,13 +687,18 @@ extern "C"
           Rcout << "Error reading bgen file: Number of samples with genotype probabilities does not match number of samples in BGEN file. \n"; return R_NilValue;
         }
         ushort LS; ret = fread(&LS, 2, 1, fp);
-        ret = fread(snpID, 1, LS, fp); snpID[LS] = '\0';
+        ret = fread(snpID, 1, LS, fp); 
+        snpID[LS] = '\0';
+        string str_snpID = "NA";
+        if (LS != 0) { str_snpID = string(snpID); }
         
         ushort LR; ret = fread(&LR, 2, 1, fp);
-        ret = fread(rsID, 1, LR, fp);  rsID[LR] = '\0';
+        ret = fread(rsID, 1, LR, fp);  
+        rsID[LR] = '\0';
         
         ushort LC; ret = fread(&LC, 2, 1, fp);
-        ret = fread(chrStr, 1, LC, fp); chrStr[LC] = '\0';
+        ret = fread(chrStr, 1, LC, fp); 
+        chrStr[LC] = '\0';
         
         uint physpos; ret = fread(&physpos, 4, 1, fp);
         string physpos_tmp = to_string(physpos);
@@ -721,9 +720,8 @@ extern "C"
           ret = fread(&cLen, 4, 1, fp);
           ret = fread(&zBuf11[0], 1, cLen, fp);
                         
-          uLongf destLen = 6*Nbgen;
-          if (uncompress(&shortBuf11[0], &destLen, &zBuf11[0], cLen) != Z_OK || destLen != (destLen1)) {
-            Rcout << "Error reading bgen file: Decompressing variant block failed with zLib. \n"; return R_NilValue;
+          if (libdeflate_zlib_decompress(decompressor, &zBuf11[0], cLen, &shortBuf11[0], destLen1, NULL) != LIBDEFLATE_SUCCESS) {
+            Rcpp::stop("Decompressing " + string(rsID) + "genotype block failed with libdeflate.");
           }
           
           probs_start = reinterpret_cast<uint16_t*>(&shortBuf11[0]);
@@ -769,7 +767,7 @@ extern "C"
         double missRate = nmiss / (double)(n * 1.0);
         
         if (skip_strata) {
-          writeout << snpID << "\t" << rsID << "\t" << chrStr << "\t" << physpos_tmp << "\t" << allele1 << "\t" << allele0 << "\t" << (n-nmiss) << "\t" << missRate << "\t"<< gmean/2.0 << "\t" << "NA\tNA\t";
+          writeout << str_snpID << "\t" << rsID << "\t" << chrStr << "\t" << physpos_tmp << "\t" << allele1 << "\t" << allele0 << "\t" << (n-nmiss) << "\t" << missRate << "\t"<< gmean/2.0 << "\t" << "NA\tNA\t";
         } else {
           std::vector<double> strata_range(strataList_size);
           for (int strata_idx = 0; strata_idx < strataList_size; strata_idx++) {
@@ -795,7 +793,6 @@ extern "C"
             g[j] -= gmean;
           }
         }
-        
         gmean /= 2.0; // convert mean to allele freq
         if(((double)nmiss/n>missrate) || ((gmean<minmaf || gmean>maxmaf) && (gmean<1-maxmaf || gmean>1-minmaf))) { // monomorphic, missrate, MAF
           snp_skip[npbidx] = 1;
@@ -805,17 +802,9 @@ extern "C"
         
         npbidx++;
         
-        vec V_i;
-        mat IV_U;
-        mat IV_V_i;
-        vec BETA_MAIN;
-        vec STAT_MAIN;
-        vec STAT_INT;
-        vec SE_MAIN;
-        mat BETA_INT;
         
         if((m+1 == end) || (npbidx == npb)) {
-          
+          ;
           
           uvec snp_idx = find(snp_skip == 0);
           if (npbidx != npb) {
@@ -823,11 +812,22 @@ extern "C"
             snp_idx = snp_idx.rows(0,npbidx-1);
           }
           G = G.cols(snp_idx);
+          int ng = G.n_cols; 
           
-          int ng = 0;
+          
+          mat IV_U;
+          mat IV_V_i;
+          vec BETA_MAIN;
+          vec STAT_INT;
+          vec SE_MAIN;
+          mat BETA_INT;
+          vec PVAL_MAIN(ng);
+          PVAL_MAIN.fill(NA_REAL);
+          vec PVAL_INT(ng);
+          PVAL_INT.fill(NA_REAL);
+          vec PVAL_JOINT(ng);
+          PVAL_JOINT.fill(NA_REAL);
           if (G.n_cols != 0) {
-            ng = G.n_cols;
-            
             mat K;
             for (int ei_idx = 0; ei_idx < ei; ei_idx++) {
               mat tmpK = G.each_col() % E.col(ei_idx);
@@ -841,8 +841,9 @@ extern "C"
                 G = join_horiz(G, tmpG);
               }
             }
-            
+            ;
             vec U = G.t() * res;
+            ;
             sp_mat Gsp(G);
             sp_mat PG;
             if (!isNullP) {
@@ -851,9 +852,11 @@ extern "C"
               sp_mat GSigma_iX =  Gsp.t() * Sigma_iX;
               PG = (Sigma_i.t() * Gsp) - (Sigma_iX * (GSigma_iX * cov.t()).t());
             }
+            ;
             mat GPG = (G.t() * PG)  % kron(ones(1+qi, 1+qi), mat(ng, ng, fill::eye));
             mat GPG_i = inv(GPG);
-            
+            ;
+            mat V_i;
             if (isNullEC) {
               V_i = diagvec(GPG_i);
             } else {
@@ -869,11 +872,32 @@ extern "C"
               }
             }
             
+            ;
+            vec V_MAIN_adj = diagvec(GPG_i);
+            V_MAIN_adj     = V_MAIN_adj.rows(0, ng-1);
+            
+            vec BETA_MAIN_adj = GPG_i.t() * U; 
+            BETA_MAIN_adj     = BETA_MAIN_adj.rows(0, ng-1);
+            
+            vec STAT_MAIN_adj(ng);
+            STAT_MAIN_adj.fill(NA_REAL);
+            for (size_t s = 0; s < V_MAIN_adj.size(); s++) {
+              if (V_MAIN_adj[s] > 0) {
+                STAT_MAIN_adj[s] = (BETA_MAIN_adj[s] * BETA_MAIN_adj[s]) / V_MAIN_adj[s];
+              }
+            } 
+            
             BETA_MAIN = V_i % U.rows(0,ng-1);
             SE_MAIN = sqrt(V_i);
-            STAT_MAIN = BETA_MAIN % U.rows(0,ng-1);
-            mat KPK;
+            vec STAT_MAIN = BETA_MAIN % U.rows(0,ng-1);
+            for (size_t s = 0; s < STAT_MAIN.size(); s++) {
+              if (STAT_MAIN[s] > 0) {
+                PVAL_MAIN[s] = Rf_pchisq(STAT_MAIN[s], 1, 0, 0);
+              }
+            }
             
+            
+            mat KPK;
             if (!isNullP) {
               KPK = K.t() * (P.t() * K);
             } else {
@@ -884,12 +908,19 @@ extern "C"
             KPK = KPK % kron(ones(ei, ei), mat(ng, ng, fill::eye));
             mat KPG = (K.t() * PG) % kron(ones(ei, 1+qi), mat(ng, ng, fill::eye));
             
+            
             if (isNullEC) {
               mat IV_U_kron = kron(ones(ei,1), mat(ng, ng, fill::eye));
               IV_U = IV_U_kron.each_col() % ((K.t() * res) - (KPG * BETA_MAIN));
               IV_V_i = inv(KPK - (KPG * (KPG * GPG_i.t()).t()));
               BETA_INT = (IV_V_i.t() * IV_U);
               STAT_INT = diagvec(IV_U.t() * BETA_INT);
+              for (size_t s = 0; s < npbidx; s++) {
+                PVAL_INT[s] = Rf_pchisq(STAT_INT[s], ei, 0, 0);
+                if (is_finite(PVAL_MAIN[s])) {
+                  PVAL_JOINT[s] = Rf_pchisq(STAT_MAIN[s] + STAT_INT[s], 1+ei, 0, 0);
+                }
+              }
               
             } else {
               mat IV_U_kron = kron(ones(ei,1), mat(ng, ng, fill::eye));
@@ -897,13 +928,21 @@ extern "C"
               IV_V_i = inv(KPK - (KPG * (KPG * GPG_i.t()).t()));
               BETA_INT = (IV_V_i.t() * IV_U);
               STAT_INT = diagvec(IV_U.t() * BETA_INT);
+              for (size_t s = 0; s < npbidx; s++) {
+                PVAL_INT[s] = Rf_pchisq(STAT_INT[s], ei, 0, 0);
+                if (is_finite(PVAL_MAIN[s])) {
+                  PVAL_JOINT[s] = Rf_pchisq(STAT_MAIN[s] + STAT_INT[s], 1+ei, 0, 0);
+                }
+              }
             }
+            
+            
+            
             
           }
           
           uvec b_idx = regspace<uvec>(0, ng, (ei-1) * ng);
-          
-          int p_idx = 0;
+          int ng_j = 0;
           for(size_t j=0; j<npbidx; ++j) {
             if(snp_skip[j] == 1) { // monomorphic, missrate, MAF
               writefile << tmpout[j] << "NA\tNA\tNA\tNA\tNA\tNA";
@@ -913,32 +952,40 @@ extern "C"
               writefile << "\n";
             } 
             else {
-              writefile << tmpout[j] << BETA_MAIN[p_idx] << "\t" << SE_MAIN[p_idx] << "\t";
+              writefile << tmpout[j] << BETA_MAIN[ng_j] << "\t" << SE_MAIN[ng_j] << "\t";
               
-              for (int b=0; b < ei; b++) {
-                int row = b_idx[b] + p_idx;
-                writefile << BETA_INT(row, p_idx) << "\t";
-              }
-              
-              for (int b=0; b < ei; b++) {
-                int col = b_idx[b] + p_idx;
-                for (int d=0; d < ei; d++) {
-                  int row = b_idx[d] + p_idx;
-                  writefile << IV_V_i(row, col) << "\t";
+              if (metaOutput) {
+                // Beta Int
+                for (int b=0; b < ei; b++) {
+                  int row = b_idx[b] + ng_j ;
+                  writefile << BETA_INT(row, ng_j ) << "\t";
                 }
+                
+                // Var
+                for (int b=0; b < ei; b++) {
+                  int col = b_idx[b] + ng_j ;
+                  for (int d=0; d < ei; d++) {
+                    if(b == d) {
+                      int row = b_idx[d] + ng_j ;
+                      writefile << IV_V_i(row, col) << "\t";
+                    }
+                  }
+                }
+                
+                // Cov
+                for (int b=0; b < ei; b++) {
+                  int col = b_idx[b] + ng_j ;
+                  for (int d=0; d < ei; d++) {
+                    if(d > b) {
+                      int row = b_idx[d] + ng_j ;
+                      writefile << IV_V_i(row, col) << "\t";
+                    }
+                  }
+                }
+                
               }
-              
-              if (V_i[j] > 0) {
-                double p_m = Rf_pchisq(STAT_MAIN[p_idx], 1, 0, 0);
-                double p_i = Rf_pchisq(STAT_INT[p_idx], ei, 0, 0);
-                double p_j = Rf_pchisq(STAT_MAIN[p_idx] + STAT_INT[p_idx], 1+ei, 0, 0);
-                writefile << p_m << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << p_j << "\n";
-              } 
-              else {
-                double p_i = Rf_pchisq(STAT_INT[j], ei, 0, 0);
-                writefile  << "NA" << "\t" << STAT_INT[p_idx] << "\t" << p_i << "\t" << "NA" << "\n";
-              }
-              p_idx++;
+              writefile << PVAL_MAIN[ng_j] << "\t" << STAT_INT[ng_j] << "\t" << PVAL_INT[ng_j] << "\t" <<  PVAL_JOINT[ng_j] << "\n";
+              ng_j++;
             }
           }
           
@@ -961,6 +1008,7 @@ extern "C"
       delete [] allele1;
       writefile.close();
       writefile.clear();
+      libdeflate_free_decompressor(decompressor);
       fclose(fp);
       return wrap(compute_time);
     } 

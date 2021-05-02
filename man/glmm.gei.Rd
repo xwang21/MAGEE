@@ -56,7 +56,7 @@ NULL
 Chen, H., Wang, C., Conomos, M.P., Stilp, A.M., Li, Z., Sofer, T., Szpiro, A.A., Chen, W., Brehm, J.M., Celedón, J.C., Redline, S., Papanicolaou, G.J., Thornton, T.A., Laurie, C.C., Rice, K. and Lin, X. (2016) Control forpopulation structure and relatedness for binary traits in genetic association studies via logistic mixed models. The American Journal of Human Genetics 98, 653-666.
 }
 \author{
-Xinyu Wang, Duy Pham, Han Chen
+Xinyu Wang, Han Chen, Duy Pham
 }
 \examples{
 \dontrun{

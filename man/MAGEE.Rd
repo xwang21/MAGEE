@@ -8,9 +8,10 @@ Use a glmmkin class object from the null GLMM to perform variant set-based main 
 }
 \usage{
 MAGEE(null.obj, interaction, geno.file, group.file,  group.file.sep = "\t", 
-      bgen.samplefile = NULL, meta.file.prefix = NULL,MAF.range = c(1e-7, 0.5), 
-      MAF.weights.beta = c(1, 25), miss.cutoff = 1, missing.method = "impute2mean", 
-      method = "davies", tests = "JF", use.minor.allele = FALSE, auto.flip = FALSE, 
+      bgen.samplefile = NULL, interaction.covariates = NULL, meta.file.prefix = NULL,
+      MAF.range = c(1e-7, 0.5), MAF.weights.beta = c(1, 25), miss.cutoff = 1, 
+      missing.method = "impute2mean", method = "davies", tests = "JF", 
+      use.minor.allele = FALSE, auto.flip = FALSE, 
       Garbage.Collection = FALSE, is.dosage = FALSE, ncores = 1)
   
 MAGEE.prep(null.obj, interaction, geno.file, group.file, group.file.sep = "\t", 
@@ -40,6 +41,9 @@ the delimiter in group.file (default = \code{"\t"}).
 }
   \item{bgen.samplefile}{
 path to the BGEN .sample file. Required when the BGEN file does not contain sample identifiers.
+}
+  \item{interaction.covariates}{
+a numeric or a character vector indicating the interaction covariates. If a numeric vector, it represents which indices in the order of covariates are the interaction covariates; if a character vector, it represents the variable names of the interaction covariates.
 }
   \item{meta.file.prefix}{
 the prefix for meta-analysis (default = \code{"NULL"}).
@@ -136,7 +140,7 @@ JD test p-value.
 Chen, H., Huffman, J.E., Brody, J.A., Wang, C., Lee, S., Li, Z., Gogarten, S.M., Sofer, T., Bielak, L.F., Bis, J.C., et al. (2019) Efficient variant set mixed model association tests for continuous and binary traits in large-scale whole-genome sequencing studies. The American Journal of Human Genetics, 104 (2): 260-274.
 }
 \author{
-Xinyu Wang, Han Chen
+Xinyu Wang, Han Chen, Duy Pham
 }
 \examples{
 \dontrun{

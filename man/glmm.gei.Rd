@@ -8,7 +8,7 @@ Use a glmmkin class object from the null GLMM to perform single variant main eff
 }
 \usage{
 glmm.gei(null.obj, interaction, geno.file, outfile, bgen.samplefile = NULL, 
-  interaction.covariates = NULL, center=T, MAF.range = c(1e-7, 0.5), 
+  interaction.covariates = NULL,  meta.output = F, center=T, MAF.range = c(1e-7, 0.5), 
   miss.cutoff = 1, missing.method = "impute2mean", nperbatch=100, ncores = 1)
 }
 \arguments{
@@ -29,6 +29,9 @@ path to the BGEN .sample file. Required when the BGEN file does not contain samp
 }
   \item{interaction.covariates}{
 a numeric or a character vector indicating the interaction covariates. If a numeric vector, it represents which indices in the order of covariates are the interaction covariates; if a character vector, it represents the variable names of the interaction covariates.
+}
+\item{meta.output}{
+boolean value to modiy the output file.If TRUE, the GxE effect estimate and variance and covariance associated with the effect estimate are included in the output file. (default = FALSE)
 }
   \item{center}{
 a logical switch for centering genotypes before tests. If TRUE, genotypes will be centered to have mean 0 before tests, otherwise raw values will be directly used in tests (default = TRUE).

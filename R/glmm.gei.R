@@ -1,4 +1,4 @@
-glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=NULL, interaction.covariates=NULL, center=T, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch=100, ncores = 1){
+glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=NULL, interaction.covariates=NULL, meta.output=F, center=T, MAF.range = c(1e-7, 0.5), miss.cutoff = 1, missing.method = "impute2mean", nperbatch=100, ncores = 1){
   if(Sys.info()["sysname"] == "Windows" && ncores > 1) {
     warning("The package doMC is not available on Windows... Switching to single thread...")
     ncores <- 1
@@ -160,7 +160,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
 
             GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1+qi, 1+qi) %x% diag(ng))
             GPG_i <- try(solve(GPG), silent = TRUE)
-            if(class(GPG_i) == "try-error") GPG_i <- MASS::ginv(GPG)
+            if(class(GPG_i)[1] == "try-error") GPG_i <- MASS::ginv(GPG)
             if(is.null(interaction.covariates)) {
               V_i <- diag(GPG_i)
             } else {
@@ -189,7 +189,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             if(!is.null(interaction.covariates)) {
               IV.U <- (rep(1, ei) %x% diag(ng)) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(crossprod(GPG_i, U))))
               IV.V_i <- try(solve(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i))), silent = TRUE)
-              if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
+              if(class(IV.V_i)[1] == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
               BETA.INT <- crossprod(IV.V_i, IV.U)
               STAT.INT <- diag(crossprod(IV.U,  BETA.INT))
               PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
@@ -198,21 +198,38 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             } else {
               IV.U <- (rep(1, ei) %x% diag(ncol(geno))) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(BETA.MAIN)))
               IV.V_i <- try(solve(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i))), silent = TRUE)
-              if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
+              if(class(IV.V_i)[1] == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
               BETA.INT <- crossprod(IV.V_i, IV.U)
               STAT.INT <- diag(crossprod(IV.U, BETA.INT))
               PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
               PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.MAIN + STAT.INT, df=1+ei, lower.tail=FALSE))
             }
             
-            return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN[1:ng], SE.MAIN, 
-                         do.call(cbind, lapply(1:ng, function(x) {idx <- seq(x, ng*ei, ng); BETA.INT[idx,x]})),
-                         do.call(cbind, lapply(1:ng, function(x) {idx <- seq(x, ng*ei, ng); IV.V_i[idx,idx][1:(ei*ei)]})),
-                         PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+            
+            if (meta.output) {
+              return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN[1:ng], SE.MAIN, 
+                           do.call(cbind, lapply(1:ng, function(x) {idx <- seq(x, ng*ei, ng); BETA.INT[idx,x]})),
+                           do.call(cbind, lapply(1:ng, function(x) {idx <- seq(x, ng*ei, ng); IV.V_i[idx,idx][1:(ei*ei)]})),
+                           PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+            } else {
+              return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN[1:ng], SE.MAIN,
+                           PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+            }
           })
-          varInt_names = paste0("VAR.INT.", 1:ei)
-          tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ei + ei*ei, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", paste0("BETA.INT.", 1:ei),  paste(rep(varInt_names, each = ei), 1:ei, sep = "."), "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
-          out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", paste0("BETA.INT.", 1:ei),  paste(rep(varInt_names, each = ei), 1:ei, sep = "."), "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
+          if (meta.output) {
+            cov.header = matrix(paste(rep(paste0("Cov_Gx", interaction[1:ei]), each = ei), interaction[1:ei], sep = "_Gx"), ei, ei)
+            diag(cov.header) <- paste0("VAR.BETA.Gx", interaction[1:ei])
+            ss.header = c(paste0("BETA.Gx", interaction[1:ei]), cov.header)
+            tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ei + ei*ei, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", ss.header, "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
+            if (ei != 1) {
+              ss.header = c(ss.header[1:ei], diag(cov.header), cov.header[lower.tri(cov.header)])
+            }
+            out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", ss.header, "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
+          } else {
+            tmp.out <- matrix(unlist(tmp.out), ncol = 9, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
+            out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
+          }
+          
           names(out)[6] <- "N"
           rm(tmp.out)
           if(b == 1) {
@@ -223,7 +240,6 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           rm(out)
         }
         SeqArray::seqClose(gds)
-        
       }
       for(b in 2:ncores) {
         system(paste0("cat ", outfile, "_tmp.", b, " >> ", outfile))
@@ -304,7 +320,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
        
           GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1+qi, 1+qi) %x% diag(ng))
           GPG_i <- try(solve(GPG), silent = TRUE)
-          if(class(GPG_i) == "try-error") GPG_i <- MASS::ginv(GPG)
+          if(class(GPG_i)[1] == "try-error") GPG_i <- MASS::ginv(GPG)
           if(is.null(interaction.covariates)) {
             V_i <- diag(GPG_i)
           } else {
@@ -333,7 +349,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           if(!is.null(interaction.covariates)) {
             IV.U <- (rep(1, ei) %x% diag(ng)) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(crossprod(GPG_i, U))))
             IV.V_i <- try(solve(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i))), silent = TRUE)
-            if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
+            if(class(IV.V_i)[1] == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
             BETA.INT <- crossprod(IV.V_i, IV.U)
             STAT.INT <- diag(crossprod(IV.U,  BETA.INT))
             PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
@@ -342,27 +358,47 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           } else {
             IV.U <- (rep(1, ei) %x% diag(ncol(geno))) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(BETA.MAIN)))
             IV.V_i <- try(solve(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i))), silent = TRUE)
-            if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
+            if(class(IV.V_i)[1] == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
             BETA.INT <- crossprod(IV.V_i, IV.U)
             STAT.INT <- diag(crossprod(IV.U, BETA.INT))
             PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
             PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.MAIN + STAT.INT, df=1+ei, lower.tail=FALSE))
           }
 
-          return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN[1:ng], SE.MAIN, 
-                       do.call(cbind, lapply(1:ng, function(x) {idx <- seq(x, ng*ei, ng); BETA.INT[idx,x]})),
-                       do.call(cbind, lapply(1:ng, function(x) {idx <- seq(x, ng*ei, ng); IV.V_i[idx,idx][1:(ei*ei)]})),
-                       PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+ 
+          if (meta.output) {
+            return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN[1:ng], SE.MAIN, 
+                         do.call(cbind, lapply(1:ng, function(x) {idx <- seq(x, ng*ei, ng); BETA.INT[idx,x]})),
+                         do.call(cbind, lapply(1:ng, function(x) {idx <- seq(x, ng*ei, ng); IV.V_i[idx,idx][1:(ei*ei)]})),
+                         PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+          } else {
+            return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN[1:ng], SE.MAIN,
+                         PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+          }
+
         })
-        varInt_names = paste0("VAR.INT.", 1:ei)
-        tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ei + ei*ei, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", paste0("BETA.INT.", 1:ei),  paste(rep(varInt_names, each = ei), 1:ei, sep = "."), "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
-        out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", paste0("BETA.INT.", 1:ei),  paste(rep(varInt_names, each = ei), 1:ei, sep = "."), "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
+        
+        SeqArray::seqClose(gds)
+        if (meta.output) {
+          cov.header = matrix(paste(rep(paste0("Cov_Gx", interaction[1:ei]), each = ei), interaction[1:ei], sep = "_Gx"), ei, ei)
+          diag(cov.header) <- paste0("VAR.BETA.Gx", interaction[1:ei])
+          ss.header = c(paste0("BETA.Gx", interaction[1:ei]), cov.header)
+
+          tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ei + ei*ei, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", ss.header, "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
+          if (ei != 1) {
+            ss.header = c(ss.header[1:ei], diag(cov.header), cov.header[lower.tri(cov.header)])
+          }
+          out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", ss.header, "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
+        } else {
+          tmp.out <- matrix(unlist(tmp.out), ncol = 9, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
+          out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
+        }
+        
         names(out)[6] <- "N"
         rm(tmp.out)
         write.table(out, outfile, quote=FALSE, row.names=FALSE, col.names=(ii == 1), sep="\t", append=(ii > 1), na=".")
         rm(out)
       }
-      SeqArray::seqClose(gds)
     }
     return(invisible(NULL))
   } else if (grepl("\\.bgen$", geno.file)) {
@@ -429,15 +465,29 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
       doMC::registerDoMC(cores = ncores)
       foreach(i=1:ncores) %dopar% {
         if (bgenInfo$LayoutFlag == 2) {
-          .Call("glmm_gei_bgen13", as.numeric(residuals), null.obj, geno.file, paste0(outfile, "_tmp.", i), center2, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, nperbatch, ei, qi, is.null(null.obj$P), is.null(interaction.covariates), strata.list, select, threadInfo$begin[i], threadInfo$end[i], threadInfo$pos[i], bgenInfo$N, bgenInfo$CompressionFlag, 1)
+          .Call("glmm_gei_bgen13", as.numeric(residuals), null.obj, geno.file, paste0(outfile, "_tmp.", i), center2, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, nperbatch, ei, qi, is.null(null.obj$P), is.null(interaction.covariates), strata.list, select, threadInfo$begin[i], threadInfo$end[i], threadInfo$pos[i], bgenInfo$N, bgenInfo$CompressionFlag, meta.output)
         } else {
-          .Call("glmm_gei_bgen11", as.numeric(residuals), null.obj, geno.file, paste0(outfile, "_tmp.", i), center2, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, nperbatch, ei, qi, is.null(null.obj$P), is.null(interaction.covariates), strata.list, select, threadInfo$begin[i], threadInfo$end[i], threadInfo$pos[i], bgenInfo$N, bgenInfo$CompressionFlag, 1)
+          .Call("glmm_gei_bgen11", as.numeric(residuals), null.obj, geno.file, paste0(outfile, "_tmp.", i), center2, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, nperbatch, ei, qi, is.null(null.obj$P), is.null(interaction.covariates), strata.list, select, threadInfo$begin[i], threadInfo$end[i], threadInfo$pos[i], bgenInfo$N, bgenInfo$CompressionFlag, meta.output)
         }
       }
-
+      
       outTmp <- file(outfile, "w")
-      varInt_names = paste0("VAR.INT.", 1:ei)
-      writeLines(paste0("SNP\tRSID\tCHR\tPOS\tREF\tALT\tN\tMISSRATE\tAF\tAF.strata.min\tAF.strata.max\tBETA.MAIN\tSE.MAIN\t", paste0("BETA.INT.", 1:ei, "\t"),  paste0(paste(rep(varInt_names, each = 3), 1:3, sep = "."), "\t"), "PVAL.MAIN\tSTAT.INT\tPVAL.INT\tPVAL.JOINT\n"), outTmp)
+      if (meta.output) {
+        if (ei == 1) {
+          cov.header = NULL
+          ss.header  = c(paste0("BETA.Gx", interaction[1:ei]), paste0("VAR.BETA.Gx", interaction[1:ei]))
+          
+        } else {
+          cov.header = matrix(paste(rep(paste0("Cov_Gx", interaction[1:ei]), each = ei), interaction[1:ei], sep = "_Gx"), ei, ei)
+          cov.header = cov.header[lower.tri(cov.header)]
+          ss.header  = c(paste0("BETA.Gx", interaction[1:ei]), paste0("VAR.BETA.Gx", interaction[1:ei]), cov.header)
+        }
+        
+        writeLines(paste0("SNP\tRSID\tCHR\tPOS\tREF\tALT\tN\tMISSRATE\tAF\tAF.strata.min\tAF.strata.max\tBETA.MAIN\tSE.MAIN\t",paste0(ss.header, collapse = "\t"),"\tPVAL.MAIN\tSTAT.INT\tPVAL.INT\tPVAL.JOINT\n"), outTmp)
+      } else {
+        writeLines(paste0("SNP\tRSID\tCHR\tPOS\tREF\tALT\tN\tMISSRATE\tAF\tAF.strata.min\tAF.strata.max\tBETA.MAIN\tSE.MAIN\tPVAL.MAIN\tSTAT.INT\tPVAL.INT\tPVAL.JOINT\n"), outTmp)
+      }
+
       for(i in 1:ncores){
         inTmp <- readLines(paste0(outfile, "_tmp.", i))
         writeLines(inTmp, outTmp)
@@ -445,11 +495,27 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
       }
       close(outTmp)
     } else {
-
-        if (bgenInfo$LayoutFlag == 2) {
-          .Call("glmm_gei_bgen13", as.numeric(residuals), null.obj, geno.file, outfile, center2, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, nperbatch, ei, qi, is.null(null.obj$P), is.null(interaction.covariates), strata.list, select, threadInfo$begin[1], threadInfo$end[1], threadInfo$pos[1], bgenInfo$N, bgenInfo$CompressionFlag, 0)
+        outTmp <- file(outfile, "w")
+        if (meta.output) {
+          if (ei == 1) {
+            cov.header = NULL
+            ss.header  = c(paste0("BETA.Gx", interaction[1:ei]), paste0("VAR.BETA.Gx", interaction[1:ei]))
+            
+          } else {
+            cov.header = matrix(paste(rep(paste0("Cov_Gx", interaction[1:ei]), each = ei), interaction[1:ei], sep = "_Gx"), ei, ei)
+            cov.header = cov.header[lower.tri(cov.header)]
+            ss.header  = c(paste0("BETA.Gx", interaction[1:ei]), paste0("VAR.BETA.Gx", interaction[1:ei]), cov.header)
+          }
+          
+          writeLines(paste0("SNP\tRSID\tCHR\tPOS\tREF\tALT\tN\tMISSRATE\tAF\tAF.strata.min\tAF.strata.max\tBETA.MAIN\tSE.MAIN\t",paste0(ss.header, collapse = "\t"),"\tPVAL.MAIN\tSTAT.INT\tPVAL.INT\tPVAL.JOINT\n"), outTmp)
         } else {
-          .Call("glmm_gei_bgen11", as.numeric(residuals), null.obj, geno.file, outfile, center2, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, nperbatch, ei, qi, is.null(null.obj$P), is.null(interaction.covariates), strata.list, select, threadInfo$begin[1], threadInfo$end[1], threadInfo$pos[1], bgenInfo$N, bgenInfo$CompressionFlag, 0)
+          writeLines(paste0("SNP\tRSID\tCHR\tPOS\tREF\tALT\tN\tMISSRATE\tAF\tAF.strata.min\tAF.strata.max\tBETA.MAIN\tSE.MAIN\tPVAL.MAIN\tSTAT.INT\tPVAL.INT\tPVAL.JOINT\n"), outTmp)
+        }
+        close(outTmp)
+        if (bgenInfo$LayoutFlag == 2) {
+          .Call("glmm_gei_bgen13", as.numeric(residuals), null.obj, geno.file, outfile, center2, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, nperbatch, ei, qi, is.null(null.obj$P), is.null(interaction.covariates), strata.list, select, threadInfo$begin[1], threadInfo$end[1], threadInfo$pos[1], bgenInfo$N, bgenInfo$CompressionFlag, meta.output)
+        } else {
+          .Call("glmm_gei_bgen11", as.numeric(residuals), null.obj, geno.file, outfile, center2, MAF.range[1], MAF.range[2], miss.cutoff, missing.method, nperbatch, ei, qi, is.null(null.obj$P), is.null(interaction.covariates), strata.list, select, threadInfo$begin[1], threadInfo$end[1], threadInfo$pos[1], bgenInfo$N, bgenInfo$CompressionFlag, meta.output)
         }
 
     }

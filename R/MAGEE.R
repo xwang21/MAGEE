@@ -626,7 +626,6 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
         out <- foreach(b=1:ncores, .combine=rbind, .multicombine = TRUE, .inorder=FALSE, .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
           idx <- if(b <= n.groups.percore_1) ((b-1)*(n.groups.percore-1)+1):(b*(n.groups.percore-1)) else (n.groups.percore_1*(n.groups.percore-1)+(b-n.groups.percore_1-1)*n.groups.percore+1):(n.groups.percore_1*(n.groups.percore-1)+(b-n.groups.percore_1)*n.groups.percore)
           n.groups <- length(idx)
-          SeqArray::seqSetFilter(gds, sample.id = sample.id, verbose = FALSE)
           n.variants <- rep(0,n.groups)
           miss.min <- rep(NA,n.groups)
           miss.mean <- rep(NA, n.groups)

@@ -547,11 +547,9 @@ extern "C"
                // Var
                for (int b=0; b < ei; b++) {
                  int col = b_idx[b] + ng_j ;
-                 Rcout << col << endl;
                  for (int d=0; d < ei; d++) {
                    if(b == d) {
                      int row = b_idx[d] + ng_j ;
-                     Rcout << row << " - " << col << endl;
                      writefile << IV_V_i(row, col) << "\t";
                    }
                  }

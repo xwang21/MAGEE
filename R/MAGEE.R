@@ -1102,7 +1102,7 @@ fisher_pval <- function(p) {
   pchisq(-2*sum(log(p)), df = 2*length(p), lower.tail = FALSE)
 }
 
-MAGEE.prep <- function(null.obj, interaction, geno.file, group.file, group.file.sep = "\t", auto.flip = FALSE)
+MAGEE.prep <- function(null.obj, interaction, geno.file, group.file, interaction.covariates = NULL, group.file.sep = "\t", auto.flip = FALSE)
 {
   if(!grepl("\\.gds$", geno.file[1])) stop("Error: currently only .gds format is supported in geno.file for MAGEE.prep!")
   if(!class(null.obj) %in% c("glmmkin", "glmmkin.multi")) stop("Error: null.obj must be a class glmmkin or glmmkin.multi object!")
@@ -1120,15 +1120,30 @@ MAGEE.prep <- function(null.obj, interaction, geno.file, group.file, group.file.
   } else residuals <- null.obj$scaled.residuals
   n <- length(unique(null.obj$id_include))
   
+  qi <- length(interaction.covariates) # number of covariates with interaction effects but we don't test
+  ei <- length(interaction) # number of covariates with interaction effects that we want to test
   if(class(interaction)=="character") {
-    if (!all(interaction %in% colnames(null.obj$X))) {stop("there are interactions not in column name of covariate matrix.")}
-    E <- as.matrix(null.obj$X[,interaction])
+    if (is.null(interaction.covariates)) {
+      if (!all(interaction %in% colnames(null.obj$X))) {stop("there are interactions not in column name of covariate matrix.")}
+      E <- as.matrix(null.obj$X[,interaction])
+    } else {
+      if (any(interaction.covariates %in% interaction)) {stop("there are interaction.covariates also specified as interaction.")}
+      interaction <- c(interaction.covariates, interaction)
+      if (!all(interaction %in% colnames(null.obj$X))) {stop("there are interaction or interaction.covariates not in column name of covariate matrix.")}
+      E <- as.matrix(null.obj$X[,interaction])
+    }
   } else {
-    E <- as.matrix(null.obj$X[,interaction+1])
+    if (is.null(interaction.covariates)) {
+      E <- as.matrix(null.obj$X[,interaction+1])
+    } else {
+      if (any(interaction.covariates %in% interaction)) {stop("there are interaction.covariates also specified as interaction.")}
+      interaction <- c(interaction.covariates, interaction)
+      E <- as.matrix(null.obj$X[,interaction+1])
+    }
   }
   interaction <- as.character(interaction)
-  n.E <- as.numeric(dim(E)[2])
-  E   <- scale(E, scale = FALSE)
+  n.E <- as.numeric(dim(E)[2]) # n.E = qi + ei
+  E <- scale(E, scale = FALSE)
   
   if (class(geno.file)[1] != "SeqVarGDSClass") {
     gds <- SeqArray::seqOpen(geno.file) 
@@ -1210,7 +1225,7 @@ MAGEE.prep <- function(null.obj, interaction, geno.file, group.file, group.file.
   group.info <- group.info[order(group.info$group.idx, group.info$variant.idx), ]
   group.idx.end <- findInterval(1:n.groups.all, group.info$group.idx)
   group.idx.start <- c(1, group.idx.end[-n.groups.all] + 1)
-  out <- list(null.obj = null.obj, E = E, geno.file = geno.file, group.file = group.file, group.file.sep = group.file.sep, strata = strata, strata.list = strata.list, auto.flip = auto.flip, residuals = residuals, sample.id = sample.id, group.info = group.info, groups = groups, group.idx.start = group.idx.start, group.idx.end = group.idx.end)
+  out <- list(null.obj = null.obj, E = E, geno.file = geno.file, group.file = group.file, group.file.sep = group.file.sep, strata = strata, strata.list = strata.list, auto.flip = auto.flip, residuals = residuals, sample.id = sample.id, group.info = group.info, groups = groups, group.idx.start = group.idx.start, group.idx.end = group.idx.end, ei = ei, qi = qi)
   class(out) <- "MAGEE.prep"
   return(out)
 }
@@ -1235,6 +1250,9 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
   group.idx.end <- MAGEE.prep.obj$group.idx.end
   strata <- MAGEE.prep.obj$strata
   strata.list <- MAGEE.prep.obj$strata.list
+  ei <- MAGEE.prep.obj$ei
+  qi <- MAGEE.prep.obj$qi
+  
   rm(MAGEE.prep.obj); gc()
   if(!class(null.obj) %in% c("glmmkin", "glmmkin.multi")) stop("Error: null.obj must be a class glmmkin or glmmkin.multi object!")
   n.pheno <- null.obj$n.pheno
@@ -1301,9 +1319,8 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
         freq <- colMeans(geno, na.rm = TRUE)/2
         include <- (miss <= miss.cutoff & ((freq >= MAF.range[1] & freq <= MAF.range[2]) | (freq >= 1-MAF.range[2] & freq <= 1-MAF.range[1])))
         if(!is.null(strata)) { # E is not continuous
-          #freq_strata <- apply(geno,2,function(x) range(tapply(x,strata,mean,na.rm=TRUE)/2))
-          freq.tmp <- sapply(strata.list, function(x) colMeans(geno[x, , drop = FALSE], na.rm = TRUE)/2)
-          if (length(dim(freq.tmp)) == 2) freq_strata <- apply(freq.tmp, 1, range) else freq_strata <- as.matrix(range(freq.tmp))
+          freq.tmp <- sapply(strata.list, function(x) colMeans(geno[x, , drop = FALSE], na.rm = TRUE)/2) # freq.tmp is a matrix, each column is a strata, and each row is a varirant 
+          if (length(dim(freq.tmp)) == 2) freq_strata <- apply(freq.tmp, 1, range) else freq_strata <- as.matrix(range(freq.tmp)) # freq_strata is the range of allele freq across strata.list
           include <- include & !is.na(freq_strata[1,]) & !is.na(freq_strata[2,]) & freq_strata[1,] >= MAF.range[1] & freq_strata[2,] <= 1-MAF.range[1]
           rm(freq.tmp)
         }
@@ -1324,26 +1341,42 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
           miss.idx <- which(is.na(geno))
           geno[miss.idx] <- if(missing.method=="impute2mean") 2*freq[ceiling(miss.idx/nrow(geno))] else 0
         }
-        U <- as.vector(crossprod(geno, residuals))
         if(IV | IF | JV | JF | JD) {
-          K <- do.call(cbind, sapply(1:ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
+          K <- do.call(cbind, sapply((1+qi):ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
           SK <- as.vector(crossprod(K,residuals))
         }
-        if(class(null.obj) == "glmmkin.multi") geno <- Diagonal(n = n.pheno) %x% geno
-        if(!is.null(null.obj$P)) PG <- crossprod(null.obj$P, geno)
-        else {
+        if((qi != 0) && (IV | IF | JV | JF | JD)) {
+          geno <- cbind(geno, do.call(cbind, sapply(1:qi, function(xx) geno*E[,xx], simplify = FALSE), envir = environment()))
+        }
+        U <- as.vector(crossprod(geno, residuals))
+        if(class(null.obj) == "glmmkin.multi") {
+          geno <- Diagonal(n = n.pheno) %x% geno
+          if (IV | IF | JV | JF | JD) K <- Diagonal(n = n.pheno) %x% K
+        }
+        if(!is.null(null.obj$P)) {
+          PG <- crossprod(null.obj$P, geno)
+        } else {
           GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
           PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
         }
         V <- as.matrix(crossprod(geno, PG))
+        if(MV | MF | JV | JF | JD) c1 <- rep(1:n.p,n.pheno)+rep((0:(n.pheno-1))*n.p*(1+qi), each=n.p) # index for GPG and row.index for GPC
+        if((qi != 0) && (JV | JF | JD)) {
+          c2 <- rep((n.p+1):(n.p*(1+qi)),n.pheno)+rep((0:(n.pheno-1))*n.p*(1+qi), each=n.p*qi) # index for CPC and col.index for GPC
+          CPC_i <- try(solve(V[c2,c2]), silent = TRUE)
+          if(class(CPC_i)[1] == "try-error") CPC_i <- MASS::ginv(solve(V[c2,c2]))
+          U.adj <- U[c1] - tcrossprod(tcrossprod(V[c1,c2],CPC_i),t(U[c2]))
+          V.adj <- V[c1,c1] - tcrossprod(tcrossprod(V[c1,c2],CPC_i),V[c1,c2])
+        }
         if(IV | IF | JV | JF | JD) {
-          K <- do.call(cbind, sapply(1:ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
-          if(!is.null(null.obj$P)) KPK <- crossprod(K,crossprod(null.obj$P,K))
-          else {
+          if(!is.null(null.obj$P)) {
+            KPK <- crossprod(K,crossprod(null.obj$P,K))
+          } else {
             KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
             KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
           }
-          V_i <- MASS::ginv(V)
+          V_i <- try(solve(V), silent = TRUE)
+          if(class(V_i)[1] == "try-error") V_i <- MASS::ginv(V)
           KPG <- crossprod(K,PG)
           IV.U <- SK - tcrossprod(tcrossprod(KPG,V_i),t(U))
           IV.V <- KPK - tcrossprod(tcrossprod(KPG,V_i),KPG)
@@ -1370,15 +1403,25 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
           freq.strata.min[i] <- min(freq_strata)
           freq.strata.max[i] <- max(freq_strata)
         }
-        U <- U*weights
-        V <- t(V*weights)*weights
+        if(MV | MF | JV | JF | JD) {
+          U <- U[c1]*weights
+          V <- t(V[c1,c1]*weights)*weights
+        }
+        if((qi != 0) && (JV | JF | JD)) {
+          U.adj <- U.adj*weights
+          V.adj <- t(V.adj*weights)*weights
+        }
         if(IV | IF | JV | JF | JD) {
-          IV.U <- IV.U*rep(weights, ncol(E))
-          IV.V <- t(IV.V*rep(weights, ncol(E)))*rep(weights, ncol(E))
+          IV.U <- IV.U*rep(weights, ei)
+          IV.V <- t(IV.V*rep(weights, ei))*rep(weights, ei)
         }
         if(MV | JV) MV.pval[i] <- tryCatch(.quad_pval(U = U, V = V, method = method), error = function(e) { NA })
         if(IV | JV) IV.pval[i] <- tryCatch(.quad_pval(U = IV.U, V = IV.V, method = method), error = function(e) { NA })
-        if(JV) JV.pval[i] <- tryCatch(fisher_pval(c(MV.pval[i], IV.pval[i])), error = function(e) { MV.pval[i] })
+        if(JV && (qi == 0)) JV.pval[i] <- tryCatch(fisher_pval(c(MV.pval[i], IV.pval[i])), error = function(e) { MV.pval[i] })
+        if(JV && (qi != 0)) {
+          MV.adj.pval <- tryCatch(.quad_pval(U = U.adj, V = V.adj, method = method), error = function(e) { NA })
+          JV.pval[i] <- tryCatch(fisher_pval(c(MV.adj.pval, IV.pval[i])), error = function(e) { MV.adj.pval })
+        }
         if(MF | JF | JD) {
           MF.BU <- sum(U)
           MF.BV <- sum(V)
@@ -1386,9 +1429,20 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
           V.rowSums <- rowSums(V)
           MF.U <- U - V.rowSums * MF.BU / MF.BV
           MF.V <- V - tcrossprod(V.rowSums) / MF.BV
-          if(mean(abs(MF.V)) < sqrt(.Machine$double.eps)) MF.p <- NA
+          if(MF.BV == 0 | mean(abs(MF.V)) < sqrt(.Machine$double.eps)) MF.p <- NA
           else MF.p <- tryCatch(.quad_pval(U = MF.U, V = MF.V, method = method), error = function(e) { NA })
           MF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp, MF.p)), error = function(e) { MF.Bp })
+        }
+        if((JF | JD) && (qi != 0)) {
+          MF.BU.adj <- sum(U.adj)
+          MF.BV.adj <- sum(V.adj)
+          MF.Bp.adj <- pchisq(MF.BU.adj^2/MF.BV.adj,df=1,lower.tail=FALSE)
+          V.adj.rowSums <- rowSums(V.adj)
+          MF.U.adj <- U.adj  - V.adj.rowSums * MF.BU.adj / MF.BV.adj 
+          MF.V.adj  <- V.adj  - tcrossprod(V.adj.rowSums) / MF.BV.adj 
+          if(MF.BV.adj == 0 | mean(abs(MF.V.adj)) < sqrt(.Machine$double.eps)) MF.adj.p <- NA
+          else MF.adj.p <- tryCatch(.quad_pval(U = MF.U.adj, V = MF.V.adj, method = method), error = function(e) { NA })
+          MF.adj.pval <- tryCatch(fisher_pval(c(MF.Bp.adj, MF.adj.p)), error = function(e) { MF.Bp.adj })
         }
         if(IF | JF | JD) {
           IF.BU <- sum(IV.U)
@@ -1397,18 +1451,18 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
           IV.V.rowSums <- rowSums(IV.V)
           IF.U <- IV.U - IV.V.rowSums * IF.BU / IF.BV
           IF.V <- IV.V - tcrossprod(IV.V.rowSums) / IF.BV
-          if(mean(abs(IF.V)) < sqrt(.Machine$double.eps)) IF.p <- NA
+          if(IF.BV == 0 | mean(abs(IF.V)) < sqrt(.Machine$double.eps)) IF.p <- NA
           else IF.p <- tryCatch(.quad_pval(U = IF.U, V = IF.V, method = method), error = function(e) { NA })
           IF.pval[i] <- tryCatch(fisher_pval(c(IF.Bp, IF.p)), error = function(e) { IF.Bp })
         }
-        if(JF) JF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp, MF.p, IF.Bp, IF.p)), error = function(e) { MF.Bp })
-        if(JD) JD.pval[i] <- tryCatch(fisher_pval(c(MF.pval[i], IF.pval[i])), error = function(e) { MF.pval[i] })
+        if(JF && (qi == 0)) JF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp, MF.p, IF.Bp, IF.p)), error = function(e) { MF.Bp })
+        if(JF && (qi != 0)) JF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp.adj, MF.adj.p, IF.Bp, IF.p)), error = function(e) { MF.Bp.adj })
+        if(JD && (qi == 0)) JD.pval[i] <- tryCatch(fisher_pval(c(MF.pval[i], IF.pval[i])), error = function(e) { MF.pval[i] })
+        if(JD && (qi != 0)) JD.pval[i] <- tryCatch(fisher_pval(c(MF.adj.pval, IF.pval[i])), error = function(e) { MF.adj.pval })
         rm(geno)
         if(Garbage.Collection) gc()
       }
-      
       SeqArray::seqClose(gds)
-      
       if(!is.null(meta.file.prefix)) close(meta.file.cov.handle)
       tmp.out <- data.frame(group=unique(group.info$group)[idx], n.variants=n.variants, miss.min=miss.min, miss.mean=miss.mean, miss.max=miss.max, freq.min=freq.min, freq.mean=freq.mean, freq.max=freq.max,freq.strata.min=freq.strata.min, freq.strata.max=freq.strata.max)
       if(MV | JV) tmp.out$MV.pval <- MV.pval
@@ -1461,9 +1515,8 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
       freq <- colMeans(geno, na.rm = TRUE)/2
       include <- (miss <= miss.cutoff & ((freq >= MAF.range[1] & freq <= MAF.range[2]) | (freq >= 1-MAF.range[2] & freq <= 1-MAF.range[1])))
       if(!is.null(strata)) { # E is not continuous
-        #freq_strata <- apply(geno,2,function(x) range(tapply(x,strata,mean,na.rm=TRUE)/2))
-        freq.tmp <- sapply(strata.list, function(x) colMeans(geno[x, , drop = FALSE], na.rm = TRUE)/2)
-        if (length(dim(freq.tmp)) == 2) freq_strata <- apply(freq.tmp, 1, range) else freq_strata <- as.matrix(range(freq.tmp))
+        freq.tmp <- sapply(strata.list, function(x) colMeans(geno[x, , drop = FALSE], na.rm = TRUE)/2) # freq.tmp is a matrix, each column is a strata, and each row is a varirant 
+        if (length(dim(freq.tmp)) == 2) freq_strata <- apply(freq.tmp, 1, range) else freq_strata <- as.matrix(range(freq.tmp)) # freq_strata is the range of allele freq across strata.list
         include <- include & !is.na(freq_strata[1,]) & !is.na(freq_strata[2,]) & freq_strata[1,] >= MAF.range[1] & freq_strata[2,] <= 1-MAF.range[1]
         rm(freq.tmp)
       }
@@ -1484,12 +1537,18 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
         miss.idx <- which(is.na(geno))
         geno[miss.idx] <- if(missing.method=="impute2mean") 2*freq[ceiling(miss.idx/nrow(geno))] else 0
       }
-      U <- as.vector(crossprod(geno, residuals))
       if(IV | IF | JV | JF | JD) {
-        K <- do.call(cbind, sapply(1:ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
+        K <- do.call(cbind, sapply((1+qi):ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
         SK <- as.vector(crossprod(K,residuals))
       }
-      if(class(null.obj) == "glmmkin.multi") geno <- Diagonal(n = n.pheno) %x% geno
+      if((qi != 0) && (IV | IF | JV | JF | JD)) {
+        geno <- cbind(geno, do.call(cbind, sapply(1:qi, function(xx) geno*E[,xx], simplify = FALSE), envir = environment()))
+      }
+      U <- as.vector(crossprod(geno, residuals))
+      if(class(null.obj) == "glmmkin.multi") {
+        geno <- Diagonal(n = n.pheno) %x% geno
+        if (IV | IF | JV | JF | JD) K <- Diagonal(n = n.pheno) %x% K
+      }
       if(!is.null(null.obj$P)) {
         PG <- crossprod(null.obj$P, geno)
       } else {
@@ -1497,14 +1556,23 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
         PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
       }
       V <- as.matrix(crossprod(geno, PG))
+      if(MV | MF | JV | JF | JD) c1 <- rep(1:n.p,n.pheno)+rep((0:(n.pheno-1))*n.p*(1+qi), each=n.p) # index for GPG and row.index for GPC
+      if((qi != 0) && (JV | JF | JD)) {
+        c2 <- rep((n.p+1):(n.p*(1+qi)),n.pheno)+rep((0:(n.pheno-1))*n.p*(1+qi), each=n.p*qi) # index for CPC and col.index for GPC
+        CPC_i <- try(solve(V[c2,c2]), silent = TRUE)
+        if(class(CPC_i)[1] == "try-error") CPC_i <- MASS::ginv(V[c2,c2])
+        U.adj <- U[c1] - tcrossprod(tcrossprod(V[c1,c2],CPC_i),t(U[c2]))
+        V.adj <- V[c1,c1] - tcrossprod(tcrossprod(V[c1,c2],CPC_i),V[c1,c2])
+      }
       if(IV | IF | JV | JF | JD) {
-        K <- do.call(cbind, sapply(1:ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
-        if(!is.null(null.obj$P)) KPK <- crossprod(K,crossprod(null.obj$P,K))
-        else {
+        if(!is.null(null.obj$P)) {
+          KPK <- crossprod(K,crossprod(null.obj$P,K))
+        } else {
           KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
           KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
         }
-        V_i <- MASS::ginv(V)
+        V_i <- try(solve(V), silent = TRUE)
+        if(class(V_i)[1] == "try-error") V_i <- MASS::ginv(V)
         KPG <- crossprod(K,PG)
         IV.U <- SK - tcrossprod(tcrossprod(KPG,V_i),t(U))
         IV.V <- KPK - tcrossprod(tcrossprod(KPG,V_i),KPG)
@@ -1531,15 +1599,25 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
         freq.strata.min[i] <- min(freq_strata)
         freq.strata.max[i] <- max(freq_strata)
       }
-      U <- U*weights
-      V <- t(V*weights)*weights
+      if(MV | MF | JV | JF | JD) {
+        U <- U[c1]*weights
+        V <- t(V[c1,c1]*weights)*weights
+      }
+      if((qi != 0) && (JV | JF | JD)) {
+        U.adj <- U.adj*weights
+        V.adj <- t(V.adj*weights)*weights
+      }
       if(IV | IF | JV | JF | JD) {
-        IV.U <- IV.U*rep(weights, ncol(E))
-        IV.V <- t(IV.V*rep(weights, ncol(E)))*rep(weights, ncol(E))
+        IV.U <- IV.U*rep(weights, ei)
+        IV.V <- t(IV.V*rep(weights, ei))*rep(weights, ei)
       }
       if(MV | JV) MV.pval[i] <- tryCatch(.quad_pval(U = U, V = V, method = method), error = function(e) { NA })
       if(IV | JV) IV.pval[i] <- tryCatch(.quad_pval(U = IV.U, V = IV.V, method = method), error = function(e) { NA })
-      if(JV) JV.pval[i] <- tryCatch(fisher_pval(c(MV.pval[i], IV.pval[i])), error = function(e) { MV.pval[i] })
+      if(JV && (qi == 0)) JV.pval[i] <- tryCatch(fisher_pval(c(MV.pval[i], IV.pval[i])), error = function(e) { MV.pval[i] })
+      if(JV && (qi != 0)) {
+        MV.adj.pval <- tryCatch(.quad_pval(U = U.adj, V = V.adj, method = method), error = function(e) { NA })
+        JV.pval[i] <- tryCatch(fisher_pval(c(MV.adj.pval, IV.pval[i])), error = function(e) { MV.adj.pval })
+      }
       if(MF | JF | JD) {
         MF.BU <- sum(U)
         MF.BV <- sum(V)
@@ -1547,9 +1625,20 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
         V.rowSums <- rowSums(V)
         MF.U <- U - V.rowSums * MF.BU / MF.BV
         MF.V <- V - tcrossprod(V.rowSums) / MF.BV
-        if(mean(abs(MF.V)) < sqrt(.Machine$double.eps)) MF.p <- NA
+        if(MF.BV == 0 | mean(abs(MF.V)) < sqrt(.Machine$double.eps)) MF.p <- NA
         else MF.p <- tryCatch(.quad_pval(U = MF.U, V = MF.V, method = method), error = function(e) { NA })
         MF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp, MF.p)), error = function(e) { MF.Bp })
+      }
+      if((JF | JD) && (qi != 0)) {
+        MF.BU.adj <- sum(U.adj)
+        MF.BV.adj <- sum(V.adj)
+        MF.Bp.adj <- pchisq(MF.BU.adj^2/MF.BV.adj,df=1,lower.tail=FALSE)
+        V.adj.rowSums <- rowSums(V.adj)
+        MF.U.adj <- U.adj  - V.adj.rowSums * MF.BU.adj / MF.BV.adj 
+        MF.V.adj  <- V.adj  - tcrossprod(V.adj.rowSums) / MF.BV.adj 
+        if(MF.BV.adj == 0 | mean(abs(MF.V.adj)) < sqrt(.Machine$double.eps)) MF.adj.p <- NA
+        else MF.adj.p <- tryCatch(.quad_pval(U = MF.U.adj, V = MF.V.adj, method = method), error = function(e) { NA })
+        MF.adj.pval <- tryCatch(fisher_pval(c(MF.Bp.adj, MF.adj.p)), error = function(e) { MF.Bp.adj })
       }
       if(IF | JF | JD) {
         IF.BU <- sum(IV.U)
@@ -1558,18 +1647,18 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
         IV.V.rowSums <- rowSums(IV.V)
         IF.U <- IV.U - IV.V.rowSums * IF.BU / IF.BV
         IF.V <- IV.V - tcrossprod(IV.V.rowSums) / IF.BV
-        if(mean(abs(IF.V)) < sqrt(.Machine$double.eps)) IF.p <- NA
+        if(IF.BV == 0 | mean(abs(IF.V)) < sqrt(.Machine$double.eps)) IF.p <- NA
         else IF.p <- tryCatch(.quad_pval(U = IF.U, V = IF.V, method = method), error = function(e) { NA })
         IF.pval[i] <- tryCatch(fisher_pval(c(IF.Bp, IF.p)), error = function(e) { IF.Bp })
       }
-      if(JF) JF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp, MF.p, IF.Bp, IF.p)), error = function(e) { MF.Bp })
-      if(JD) JD.pval[i] <- tryCatch(fisher_pval(c(MF.pval[i], IF.pval[i])), error = function(e) { MF.pval[i] })
+      if(JF && (qi == 0)) JF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp, MF.p, IF.Bp, IF.p)), error = function(e) { MF.Bp })
+      if(JF && (qi != 0)) JF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp.adj, MF.adj.p, IF.Bp, IF.p)), error = function(e) { MF.Bp.adj })
+      if(JD && (qi == 0)) JD.pval[i] <- tryCatch(fisher_pval(c(MF.pval[i], IF.pval[i])), error = function(e) { MF.pval[i] })
+      if(JD && (qi != 0)) JD.pval[i] <- tryCatch(fisher_pval(c(MF.adj.pval, IF.pval[i])), error = function(e) { MF.adj.pval })
       rm(geno, K)
       if(Garbage.Collection) gc()
     }
-    
     SeqArray::seqClose(gds)
-    
     if(!is.null(meta.file.prefix)) close(meta.file.cov.handle)
     out <- data.frame(group=unique(group.info$group), n.variants=n.variants, miss.min=miss.min, miss.mean=miss.mean, miss.max=miss.max, freq.min=freq.min, freq.mean=freq.mean, freq.max=freq.max,freq.strata.min=freq.strata.min, freq.strata.max=freq.strata.max)
     if(MV | JV) out$MV.pval <- MV.pval

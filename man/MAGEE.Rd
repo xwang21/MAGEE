@@ -17,8 +17,8 @@ MAGEE(null.obj, interaction, geno.file, group.file,  group.file.sep = "\t",
       use.minor.allele = FALSE, auto.flip = FALSE, 
       Garbage.Collection = FALSE, is.dosage = FALSE, ncores = 1)
 
-MAGEE.prep(null.obj, interaction, geno.file, group.file, group.file.sep = "\t", 
-           auto.flip = FALSE)
+MAGEE.prep(null.obj, interaction, geno.file, group.file, interaction.covariates = NULL,
+           group.file.sep = "\t", auto.flip = FALSE)
            
 MAGEE.lowmem(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(1e-7, 0.5), 
              MAF.weights.beta = c(1, 25), miss.cutoff = 1, missing.method = "impute2mean", 

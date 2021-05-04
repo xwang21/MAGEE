@@ -14,14 +14,16 @@ SEXP getVariantPos(SEXP bgenfile_in, SEXP offset_in, SEXP mbgen_in, SEXP nbgen_i
 
 SEXP bgenVariantInfo(SEXP bgenfile_in, SEXP offset_in, SEXP mbgen_in, SEXP nbgen_in, SEXP layout_in, SEXP compression_in);
 
-SEXP magee_bgen13(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP select_in, SEXP compression_in);
+SEXP magee_bgen13(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP select_in, SEXP compression_in, SEXP n_in);
 
+SEXP magee_bgen11(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP select_in, SEXP compression_in, SEXP nsamples_in, SEXP n_in);
 
-SEXP magee_bgen11(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP select_in, SEXP compression_in, SEXP nsamples_in);
+SEXP clear_exptr(SEXP ptr_in);
 
 static const R_CallMethodDef R_CallDef[]  = {
-  {"magee_bgen13", (DL_FUNC) &magee_bgen13, 5},
-  {"magee_bgen11", (DL_FUNC) &magee_bgen13, 6},
+  {"clear_exptr", (DL_FUNC) &clear_exptr, 1},
+  {"magee_bgen13", (DL_FUNC) &magee_bgen13, 6},
+  {"magee_bgen11", (DL_FUNC) &magee_bgen11, 7},
   {"glmm_gei_bgen11", (DL_FUNC) &glmm_gei_bgen11, 24},
   {"glmm_gei_bgen13", (DL_FUNC) &glmm_gei_bgen13, 24},
   {"bgenHeader", (DL_FUNC) &bgenHeader, 1},

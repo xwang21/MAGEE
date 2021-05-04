@@ -2,7 +2,9 @@ context("Mixed model Association tests for GEne-Environment interactions (MAGEE)
 
 test_that("400 gaussian", {
   
-  gdsfile <- system.file("extdata", "geno.gds", package = "MAGEE")
+  gdsfile  <- system.file("extdata", "geno.gds",  package = "MAGEE")
+  bgenfile <- system.file("extdata", "geno.bgen", package = "MAGEE")
+  samplefile <- system.file("extdata", "geno.sample", package = "MAGEE")
   group.file <- system.file("extdata", "SetID.withweights.txt", package = "MAGEE")
   data(example)
   suppressWarnings(RNGversion("3.5.0"))
@@ -17,6 +19,8 @@ test_that("400 gaussian", {
   kins <- example$GRM
   obj1 <- glmmkin(trait ~ age + sex, data = pheno, kins = kins, id = "id", family = gaussian(link = "identity"))
   out1 <- MAGEE(null.obj=obj1, interaction="sex", geno.file=gdsfile, group.file=group.file, tests = c("JV", "JF", "JD"), use.minor.allele = T, auto.flip = T)
+  out1_bgen <- MAGEE(null.obj=obj1, interaction="sex", geno.file=bgenfile, bgen.samplefile = samplefile, group.file=group.file, tests = c("JV", "JF", "JD"), use.minor.allele = T, auto.flip = T)
+  
   expect_equal(signif(range(out1$IV.pval)), signif(c(0.0442781, 0.9028424)))
   expect_equal(signif(range(out1$IF.pval)), signif(c(0.03147219, 0.97079474)))
   expect_equal(signif(range(out1$JV.pval)), signif(c(0.06884383, 0.82438351)))
@@ -24,12 +28,14 @@ test_that("400 gaussian", {
   expect_equal(signif(range(out1$JD.pval)), signif(c(0.07417719, 0.85422359)))
   obj2 <- glmmkin(trait ~ age + sex, data = pheno, kins = NULL, id = "id", family = gaussian(link = "identity"))
   out2 <- MAGEE(null.obj=obj2, interaction="sex", geno.file=gdsfile, group.file=group.file, tests = c("JV", "JF", "JD"), use.minor.allele = T, auto.flip = T)
+  out2_bgen <- MAGEE(null.obj=obj2, interaction="sex", geno.file=bgenfile, bgen.samplefile = samplefile, group.file=group.file, tests = c("JV", "JF", "JD"), use.minor.allele = T, auto.flip = T)
   expect_equal(signif(range(out2$IV.pval)), signif(c(0.04641134, 0.89956347)))
   expect_equal(signif(range(out2$IF.pval)), signif(c(0.03844619, 0.94288432)))
 #  expect_equal(signif(range(out2$JV.pval)), signif(c(0.05562695, 0.63240910)))
 #  expect_equal(signif(range(out2$JF.pval)), signif(c(0.08496645, 0.79924790)))
   expect_equal(signif(range(out2$JD.pval)), signif(c(0.08749729, 0.81941241)))
   
+
   skip_on_cran()
   out1.tmp <- MAGEE(null.obj=obj1, interaction="sex", geno.file=gdsfile, group.file=group.file, tests = c("JV", "JF", "JD"), use.minor.allele = T, auto.flip = T, ncores = 2)
   expect_equal(out1, out1.tmp)
@@ -39,11 +45,16 @@ test_that("400 gaussian", {
   idx <- sample(nrow(pheno))
   pheno <- pheno[idx, ]
   obj1 <- glmmkin(trait ~ age + sex, data = pheno, kins = kins, id = "id", family = gaussian(link = "identity"))
-  tmpout <- MAGEE(null.obj=obj1, interaction="sex", geno.file=gdsfile, group.file=group.file, tests = c("JV", "JF", "JD"), use.minor.allele = T, auto.flip = T)
+  tmpout <- MAGEE(null.obj=obj1, interaction="sex", geno.file=gdsfile,  group.file=group.file, tests = c("JV", "JF", "JD"), use.minor.allele = T, auto.flip = T)
   expect_equal(out1, tmpout)
+  tmpout <- MAGEE(null.obj=obj1, interaction="sex", geno.file=bgenfile, bgen.samplefile = samplefile, group.file=group.file, tests = c("JV", "JF", "JD"), use.minor.allele = T, auto.flip = T)
+  expect_equal(out1_bgen, tmpout)
   obj2 <- glmmkin(trait ~ age + sex, data = pheno, kins = NULL, id = "id", family = gaussian(link = "identity"))
   tmpout <- MAGEE(null.obj=obj2, interaction="sex", geno.file=gdsfile, group.file=group.file, tests = c("JV", "JF", "JD"), use.minor.allele = T, auto.flip = T)
   expect_equal(out2, tmpout)
+  tmpout <- MAGEE(null.obj=obj2, interaction="sex", geno.file=bgenfile, bgen.samplefile = samplefile, group.file=group.file, tests = c("JV", "JF", "JD"), use.minor.allele = T, auto.flip = T)
+  expect_equal(out2_bgen, tmpout)
+  
   
   idx <- sample(nrow(kins))
   kins <- kins[idx, idx]

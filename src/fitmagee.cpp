@@ -65,7 +65,7 @@ typedef long long unsigned int llui;
 
 extern "C" {
   
-SEXP magee_bgen13(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP select_in, SEXP compression_in) {
+SEXP magee_bgen13(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP select_in, SEXP compression_in, SEXP n_in) {
        
     try {
 
@@ -87,7 +87,8 @@ SEXP magee_bgen13(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP sel
       char* allele1 = new char[maxLA + 1];
       char* allele0 = new char[maxLA + 1];
       
-      Rcpp::NumericMatrix dos(select.size(), groupIndex.size());
+      int n0 = Rcpp::as<int>(n_in);
+      Rcpp::NumericMatrix dos(n0, groupIndex.size());
       
       struct libdeflate_decompressor* decompressor = libdeflate_alloc_decompressor();
       
@@ -203,6 +204,7 @@ SEXP magee_bgen13(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP sel
           
           
           uint ncount = 0;
+          uint idx_k = 0;
           if (!is_phased) {
             for (size_t i = 0; i < N; i++) {
               const uint32_t missing_and_ploidy = missing_and_ploidy_info[i];
@@ -217,13 +219,15 @@ SEXP magee_bgen13(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP sel
                   double p11 = numer_aa / double(1.0 * numer_mask);
                   double p10 = numer_ab / double(1.0 * numer_mask);
                   
-                  dos(select[ncount]-1, grp) = 2 * (1 - p11 - p10) + p10;
+                  dos(idx_k, grp) = 2 * (1 - p11 - p10) + p10;
+                  idx_k++;
                 }
               } else if (missing_and_ploidy == 130){
                 probs_start += (probs_offset * 2);
                 
                 if (select[ncount] > 0){
-                    dos(select[ncount]-1, grp) = NA_REAL;
+                    dos(idx_k, grp) = NA_REAL;
+                    idx_k++;
                 }
               } else {
                 Rcout << "Error reading bgen file: Ploidy value " << missing_and_ploidy << " is unsupported. Must be 2 or 130. \n"; 
@@ -247,14 +251,16 @@ SEXP magee_bgen13(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP sel
                   double p11 = numer_aa / double(1.0 * numer_mask);
                   double p10 = numer_ab / double(1.0 * numer_mask);
                   
-                  dos(select[ncount]-1, grp) = double(1.0 * missing_and_ploidy) - (p11 + p10);
+                  dos(idx_k++, grp) = double(1.0 * missing_and_ploidy) - (p11 + p10);
+                  idx_k++;
                 }
                 
               } else if (missing_and_ploidy == 130){
                 probs_start += (probs_offset * 2);
                 
                 if (select[ncount] > 0){
-                    dos(select[ncount]-1, grp) = NA_REAL;
+                    dos(idx_k, grp) = NA_REAL;
+                    idx_k++;
                 }
               } else {
                 Rcout << "Error reading bgen file: Ploidy value " << missing_and_ploidy << " is unsupported. Must be 2 or 130. \n"; return R_NilValue;
@@ -287,7 +293,7 @@ SEXP magee_bgen13(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP sel
   
   
   
-  SEXP magee_bgen11(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP select_in, SEXP compression_in, SEXP nsamples_in) {
+  SEXP magee_bgen11(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP select_in, SEXP compression_in, SEXP nsamples_in, SEXP n_in) {
     
     try {
       
@@ -317,8 +323,9 @@ SEXP magee_bgen13(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP sel
       char* chrStr  = new char[maxLA + 1];
       char* allele1 = new char[maxLA + 1];
       char* allele0 = new char[maxLA + 1];
+      int n0 = Rcpp::as<int>(n_in);
       
-      Rcpp::NumericMatrix dos(select.size(), groupIndex.size());
+      Rcpp::NumericMatrix dos(n0, groupIndex.size());
       
       struct libdeflate_decompressor* decompressor = libdeflate_alloc_decompressor();
       
@@ -380,22 +387,25 @@ SEXP magee_bgen13(SEXP bgenfile_in, SEXP groupIndex_in, SEXP fbytes_in, SEXP sel
      
      
         uint ncount = 0;
+        uint idx_k  = 0;
         for (size_t i = 0; i < Nsamples; i++) {
           double p11 = probs_start[3 * i] * scale;
           double p10 = probs_start[3 * i + 1] * scale;
           double p00 = probs_start[3 * i + 2] * scale;
           
-          if (p11 == 0.0 && p10 == 0.0 && p00 == 0.0) {
-            dos(select[ncount]-1, grp) = NA_REAL;
-            
-          } else {
-            double pTot = p11 + p10 + p00;
-            
-            dos(select[ncount]-1, grp) = (2 * p00 + p10) / pTot;
-            
-            ncount++;
+          if (select[ncount-1] > 0) {
+            if (p11 == 0.0 && p10 == 0.0 && p00 == 0.0) {
+              dos(select[ncount]-1, grp) = NA_REAL;
+              idx_k++;
+              
+            } else {
+              double pTot = p11 + p10 + p00;
+              
+              dos(idx_k, grp) = (2 * p00 + p10) / pTot;
+              idx_k++;
+            } 
           }
-         
+          ncount++;
         }
          
       }

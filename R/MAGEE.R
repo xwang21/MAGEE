@@ -560,9 +560,8 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
     if(!is.null(null.obj$P)) {
       null.obj$P <- null.obj$P[match.id, match.id]
     } else {
-      null.obj$Sigma_iX <- Matrix(null.obj$Sigma_iX[match.id, , drop = FALSE], sparse = TRUE)
-      null.obj$Sigma_i <- Matrix(null.obj$Sigma_i[match.id, match.id], sparse = TRUE)
-      null.obj$cov <- Matrix(null.obj$cov, sparse = TRUE)
+      null.obj$Sigma_iX <- null.obj$Sigma_iX[match.id, , drop = FALSE]
+      null.obj$Sigma_i <- null.obj$Sigma_i[match.id, match.id]
     }
     strata <- apply(E, 1, paste, collapse = ":")
     strata <- if(length(unique(strata))>length(strata)/100) NULL else as.numeric(as.factor(strata))
@@ -617,12 +616,9 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
       ncores <- n.groups.all
       print(paste0("Warning: number of cores (", ncores,") is greater than number of groups (", n.groups.all,"). Using ", ncores, " instead."))
     }
-    
-    if (ncores > 1) {
-      doMC::registerDoMC(cores = ncores)
       
-      ncores <- min(c(ncores, parallel::detectCores(logical = TRUE)))
-      if(ncores > 1) {
+    ncores <- min(c(ncores, parallel::detectCores(logical = TRUE)))
+    if(ncores > 1) {
         doMC::registerDoMC(cores = ncores)
         n.groups.percore <- (n.groups.all-1) %/% ncores + 1
         n.groups.percore_1 <- n.groups.percore * ncores - n.groups.all
@@ -661,9 +657,9 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
             tmp.idx <- group.idx.start[idx[i]]:group.idx.end[idx[i]]
             tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
             if (bgenInfo$Layout == 2) {
-              geno <- .Call("magee_bgen13", geno.file, tmp.group.info$variant.idx, ptr, select, bgenInfo$Compression)
+              geno <- .Call("magee_bgen13", geno.file, tmp.group.info$variant.idx, ptr, select, bgenInfo$Compression, n)
             } else {
-              geno <- .Call("magee_bgen11", geno.file, tmp.group.info$variant.idx, ptr, select, bgenInfo$Compression, bgenInfo$N)
+              geno <- .Call("magee_bgen11", geno.file, tmp.group.info$variant.idx, ptr, select, bgenInfo$Compression, bgenInfo$N, n)
             }
             miss <- colMeans(is.na(geno))
             freq <- colMeans(geno, na.rm = TRUE)/2
@@ -823,8 +819,8 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
           if(JF) tmp.out$JF.pval <- JF.pval
           if(JD) tmp.out$JD.pval <- JD.pval
           tmp.out
-        }
       }
+        
     } else {
       n.groups   <- n.groups.all
       n.variants <- rep(0,n.groups)
@@ -859,11 +855,10 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
         tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
         
         if (bgenInfo$Layout == 2) {
-          geno <- .Call("magee_bgen13", geno.file, tmp.group.info$variant.idx, ptr, select, bgenInfo$Compression)
+          geno <- .Call("magee_bgen13", geno.file, tmp.group.info$variant.idx, ptr, select, bgenInfo$Compression, n)
         } else {
-          geno <- .Call("magee_bgen11", geno.file, tmp.group.info$variant.idx, ptr, select, bgenInfo$Compression, bgenInfo$N)
+          geno <- .Call("magee_bgen11", geno.file, tmp.group.info$variant.idx, ptr, select, bgenInfo$Compression, bgenInfo$N, n)
         }
-        
         miss <- colMeans(is.na(geno))
         freq <- colMeans(geno, na.rm = TRUE)/2
         include <- (miss <= miss.cutoff & ((freq >= MAF.range[1] & freq <= MAF.range[2]) | (freq >= 1-MAF.range[2] & freq <= 1-MAF.range[1])))
@@ -1022,6 +1017,7 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
       if(JF) out$JF.pval <- JF.pval
       if(JD) out$JD.pval <- JD.pval
     }
+    .Call("clear_exptr", ptr)
     return(out[match(groups, out$group),])
   }
 }

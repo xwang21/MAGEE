@@ -37,6 +37,7 @@
  *  http://www.r-project.org/Licenses/
  */
 
+#define ARMA_DONT_PRINT_ERRORS
 #include <fstream>
 #include <cmath>
 #include <cstring>
@@ -136,7 +137,7 @@ extern "C"
       ofstream writefile(outfile.c_str(), std::ios_base::app);
       
       struct libdeflate_decompressor* decompressor = libdeflate_alloc_decompressor();
-
+      
       uint maxLA = 65536;
       std::vector<uchar> zBuf12;
       std::vector<uchar> shortBuf12;
@@ -248,7 +249,7 @@ extern "C"
       	if (B != 8 && B!= 16 && B !=24 && B != 32) {
           Rcout << "Error reading bgen file: Bits to store probabilities must be 8, 16, 24, or 32. \n"; return R_NilValue;
       	}
-	
+      	
 	      const uintptr_t numer_mask = (1U << B) - 1;
         const uintptr_t probs_offset = B / 8;
         
@@ -330,7 +331,7 @@ extern "C"
          }
        }
       
-
+      
        gmean/=(double)(n-nmiss);
        double missRate = nmiss / (double)(n * 1.0);
        
@@ -370,7 +371,7 @@ extern "C"
   
        npbidx++;
        
-    
+       
        if((m+1 == end) || (npbidx == npb)) {
           
         
@@ -421,8 +422,13 @@ extern "C"
               PG = (Sigma_i.t() * Gsp) - (Sigma_iX * (GSigma_iX * cov.t()).t());
             }
             mat GPG = (G.t() * PG)  % kron(ones(1+qi, 1+qi), mat(ng, ng, fill::eye));
-            mat GPG_i = inv(GPG);
-            
+            mat GPG_i(GPG.n_rows, GPG.n_cols);
+
+            bool is_non_singular = inv(GPG_i, GPG);
+            if (!is_non_singular) {
+              GPG_i = pinv(GPG);
+            }
+   
             mat V_i;
             if (isNullEC) {
               V_i = diagvec(GPG_i);
@@ -463,7 +469,7 @@ extern "C"
               }
             }
             
-            
+
             mat KPK;
             if (!isNullP) {
               KPK = K.t() * (P.t() * K);
@@ -471,44 +477,51 @@ extern "C"
               mat KSigma_iX = K.t() * Sigma_iX;
               KPK = (K.t() * (Sigma_i.t() * K)) - (KSigma_iX * (KSigma_iX * cov.t()).t());
             }
-            
+           
             KPK = KPK % kron(ones(ei, ei), mat(ng, ng, fill::eye));
             mat KPG = (K.t() * PG) % kron(ones(ei, 1+qi), mat(ng, ng, fill::eye));
           
-          
             if (isNullEC) {
               mat IV_U_kron = kron(ones(ei,1), mat(ng, ng, fill::eye));
-              IV_U = IV_U_kron.each_col() % ((K.t() * res) - (KPG * BETA_MAIN));
-              IV_V_i = inv(KPK - (KPG * (KPG * GPG_i.t()).t()));
+              IV_U   = IV_U_kron.each_col() % ((K.t() * res) - (KPG * BETA_MAIN));
+              mat IV = KPK - (KPG * (KPG * GPG_i.t()).t());
+
+              bool is_non_singular = inv(IV_V_i, IV);
+              if (!is_non_singular) {
+                IV_V_i = pinv(IV);
+              }
+              
               BETA_INT = (IV_V_i.t() * IV_U);
               STAT_INT = diagvec(IV_U.t() * BETA_INT);
-              for (size_t s = 0; s < npbidx; s++) {
+              for (size_t s = 0; s < STAT_INT.size(); s++) {
                 PVAL_INT[s] = Rf_pchisq(STAT_INT[s], ei, 0, 0);
                 if (is_finite(PVAL_MAIN[s])) {
                   PVAL_JOINT[s] = Rf_pchisq(STAT_MAIN[s] + STAT_INT[s], 1+ei, 0, 0);
                 }
               }
-              
             } else {
               mat IV_U_kron = kron(ones(ei,1), mat(ng, ng, fill::eye));
-              IV_U = IV_U_kron.each_col() % ((K.t() * res) - (KPG * (GPG_i.t() * U)));
-              IV_V_i = inv(KPK - (KPG * (KPG * GPG_i.t()).t()));
+              IV_U   = IV_U_kron.each_col() % ((K.t() * res) - (KPG * (GPG_i.t() * U)));
+              mat IV = KPK - (KPG * (KPG * GPG_i.t()).t());
+              bool is_non_singular = inv(IV_V_i, IV);
+              if (!is_non_singular) {
+                IV_V_i = pinv(IV);
+              }
               BETA_INT = (IV_V_i.t() * IV_U);
               STAT_INT = diagvec(IV_U.t() * BETA_INT);
-              for (size_t s = 0; s < npbidx; s++) {
+              for (size_t s = 0; s < STAT_INT.size(); s++) {
                 PVAL_INT[s] = Rf_pchisq(STAT_INT[s], ei, 0, 0);
                 if (is_finite(PVAL_MAIN[s])) {
                   PVAL_JOINT[s] = Rf_pchisq(STAT_MAIN[s] + STAT_INT[s], 1+ei, 0, 0);
                 }
               }
             }
-            
-          
-          
           
          }
-          
+     
+         
          uvec b_idx = regspace<uvec>(0, ng, (ei-1) * ng);
+         
          int ng_j = 0;
          for(size_t j=0; j<npbidx; ++j) {
            if(snp_skip[j] == 1) { // monomorphic, missrate, MAF
@@ -519,26 +532,28 @@ extern "C"
              writefile << "\n";
            } 
            else {
+         
              writefile << tmpout[j] << BETA_MAIN[ng_j] << "\t" << SE_MAIN[ng_j] << "\t";
-  
              if (metaOutput) {
                // Beta Int
                for (int b=0; b < ei; b++) {
                  int row = b_idx[b] + ng_j ;
                  writefile << BETA_INT(row, ng_j ) << "\t";
                }
-               
+      
                // Var
                for (int b=0; b < ei; b++) {
                  int col = b_idx[b] + ng_j ;
+                 Rcout << col << endl;
                  for (int d=0; d < ei; d++) {
                    if(b == d) {
                      int row = b_idx[d] + ng_j ;
+                     Rcout << row << " - " << col << endl;
                      writefile << IV_V_i(row, col) << "\t";
                    }
                  }
                }
-               
+       
                // Cov
                for (int b=0; b < ei; b++) {
                  int col = b_idx[b] + ng_j ;
@@ -549,17 +564,18 @@ extern "C"
                    }
                  }
                }
-             
+            
              }
+             
              writefile << PVAL_MAIN[ng_j] << "\t" << STAT_INT[ng_j] << "\t" << PVAL_INT[ng_j] << "\t" <<  PVAL_JOINT[ng_j] << "\n";
              ng_j++;
            }
          }
-          
-         npbidx = 0; 
+
+         npbidx = 0;
          snp_skip.zeros();
          G.reshape(n, npb);
-          
+         
        }
       if((m+1) % 100000 == 0) {writefile << flush;}
      }
@@ -854,8 +870,12 @@ extern "C"
             }
             ;
             mat GPG = (G.t() * PG)  % kron(ones(1+qi, 1+qi), mat(ng, ng, fill::eye));
-            mat GPG_i = inv(GPG);
-            ;
+            mat GPG_i;
+            bool is_non_singular = inv(GPG_i, GPG);
+            if (!is_non_singular) {
+              GPG_i = pinv(GPG);
+            }
+            
             mat V_i;
             if (isNullEC) {
               V_i = diagvec(GPG_i);
@@ -912,10 +932,14 @@ extern "C"
             if (isNullEC) {
               mat IV_U_kron = kron(ones(ei,1), mat(ng, ng, fill::eye));
               IV_U = IV_U_kron.each_col() % ((K.t() * res) - (KPG * BETA_MAIN));
-              IV_V_i = inv(KPK - (KPG * (KPG * GPG_i.t()).t()));
+              mat IV = KPK - (KPG * (KPG * GPG_i.t()).t());
+              bool is_non_singular = inv(IV_V_i, IV);
+              if (!is_non_singular) {
+                IV_V_i = pinv(IV);
+              }
               BETA_INT = (IV_V_i.t() * IV_U);
               STAT_INT = diagvec(IV_U.t() * BETA_INT);
-              for (size_t s = 0; s < npbidx; s++) {
+              for (size_t s = 0; s < STAT_INT.size(); s++) {
                 PVAL_INT[s] = Rf_pchisq(STAT_INT[s], ei, 0, 0);
                 if (is_finite(PVAL_MAIN[s])) {
                   PVAL_JOINT[s] = Rf_pchisq(STAT_MAIN[s] + STAT_INT[s], 1+ei, 0, 0);
@@ -925,10 +949,14 @@ extern "C"
             } else {
               mat IV_U_kron = kron(ones(ei,1), mat(ng, ng, fill::eye));
               IV_U = IV_U_kron.each_col() % ((K.t() * res) - (KPG * (GPG_i.t() * U)));
-              IV_V_i = inv(KPK - (KPG * (KPG * GPG_i.t()).t()));
+              mat IV = KPK - (KPG * (KPG * GPG_i.t()).t());
+              bool is_non_singular = inv(IV_V_i, IV);
+              if (!is_non_singular ) {
+                IV_V_i = pinv(IV);
+              }
               BETA_INT = (IV_V_i.t() * IV_U);
               STAT_INT = diagvec(IV_U.t() * BETA_INT);
-              for (size_t s = 0; s < npbidx; s++) {
+              for (size_t s = 0; s < STAT_INT.size(); s++) {
                 PVAL_INT[s] = Rf_pchisq(STAT_INT[s], ei, 0, 0);
                 if (is_finite(PVAL_MAIN[s])) {
                   PVAL_JOINT[s] = Rf_pchisq(STAT_MAIN[s] + STAT_INT[s], 1+ei, 0, 0);

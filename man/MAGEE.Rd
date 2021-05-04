@@ -1,5 +1,8 @@
 \name{MAGEE}
 \alias{MAGEE}
+\alias{MAGEE.prep}
+\alias{MAGEE.lowmem}
+
 \title{
 Mixed model Association tests for GEne-Environment interactions
 }
@@ -13,6 +16,14 @@ MAGEE(null.obj, interaction, geno.file, group.file,  group.file.sep = "\t",
       missing.method = "impute2mean", method = "davies", tests = "JF", 
       use.minor.allele = FALSE, auto.flip = FALSE, 
       Garbage.Collection = FALSE, is.dosage = FALSE, ncores = 1)
+
+MAGEE.prep(null.obj, interaction, geno.file, group.file, group.file.sep = "\t", 
+           auto.flip = FALSE)
+           
+MAGEE.lowmem(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(1e-7, 0.5), 
+             MAF.weights.beta = c(1, 25), miss.cutoff = 1, missing.method = "impute2mean", 
+             method = "davies", tests = "JF", use.minor.allele = FALSE, 
+             Garbage.Collection = FALSE, is.dosage = FALSE, ncores = 1, verbose = FALSE)
 }
 
 \arguments{
@@ -72,6 +83,9 @@ a logical switch (default = FALSE).
 }
   \item{ncores}{
 a positive integer indicating the number of cores to be used in parallel computing (default = 1).
+}
+  \item{MAGEE.prep.obj}{
+a class MAGEE.prep object, returned by \code{MAGEE.prep}.
 }
 }
 \value{

@@ -376,4 +376,14 @@ extern "C"
                               Named("fbytes")       = fbytes                                                
                               ));  
   }
+  
+  
+  SEXP clear_exptr(SEXP ptr_in) {
+    vector<llui>* bytes = (vector<llui>*)R_ExternalPtrAddr(ptr_in);
+    delete bytes;
+    
+    R_ClearExternalPtr(ptr_in);
+    
+    return(R_NilValue);
+  }
 }

@@ -375,11 +375,11 @@ extern "C"
        if((m+1 == end) || (npbidx == npb)) {
           
         
-         uvec snp_idx = find(snp_skip == 0);
          if (npbidx != npb) {
            G.reshape(n, npbidx);
-           snp_idx = snp_idx.rows(0,npbidx-1);
+           snp_skip = snp_skip.rows(0,npbidx-1);
          }
+         uvec snp_idx = find(snp_skip == 0);
          G = G.cols(snp_idx);
          int ng = G.n_cols; 
          
@@ -422,8 +422,8 @@ extern "C"
               PG = (Sigma_i.t() * Gsp) - (Sigma_iX * (GSigma_iX * cov.t()).t());
             }
             mat GPG = (G.t() * PG)  % kron(ones(1+qi, 1+qi), mat(ng, ng, fill::eye));
-            mat GPG_i(GPG.n_rows, GPG.n_cols);
-
+            
+            mat GPG_i;
             bool is_non_singular = inv(GPG_i, GPG);
             if (!is_non_singular) {
               GPG_i = pinv(GPG);
@@ -820,13 +820,13 @@ extern "C"
         
         
         if((m+1 == end) || (npbidx == npb)) {
-          ;
           
-          uvec snp_idx = find(snp_skip == 0);
+          
           if (npbidx != npb) {
             G.reshape(n, npbidx);
-            snp_idx = snp_idx.rows(0,npbidx-1);
+            snp_skip = snp_skip.rows(0,npbidx-1);
           }
+          uvec snp_idx = find(snp_skip == 0);
           G = G.cols(snp_idx);
           int ng = G.n_cols; 
           

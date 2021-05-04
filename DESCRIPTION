@@ -7,6 +7,7 @@ Author: Xinyu Wang, Han Chen, Duy Pham
 Maintainer: Xinyu Wang <xinyu.wang@uth.tmc.edu>
 Description: Use a glmmkin class object from the null GLMM to perform variant set-based main effect tests, gene-environment interaction tests, and joint tests for association with genotypes in a GDS file (.gds) or BGEN file.
 License: GPL-3
+Copyright: See COPYRIGHTS for details.
 Imports: Rcpp, Matrix, parallel, MASS, SeqArray, SeqVarTools, foreach, GMMAT,
         CompQuadForm
 Suggests: doMC, testthat

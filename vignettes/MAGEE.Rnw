@@ -1,0 +1,375 @@
+%\VignetteIndexEntry{GMMAT}
+\documentclass[a4paper,12pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{float}
+\restylefloat{table}
+\usepackage{graphicx}
+\usepackage{epstopdf}
+\usepackage{hyperref}
+\usepackage[usenames,dvipsnames]{xcolor}
+\usepackage{listings}
+\usepackage[superscript]{cite}
+\newcommand{\mb}{\mathbf}
+\newcommand{\bs}{\boldsymbol}
+\allowdisplaybreaks[1]
+\lstset{
+language=R,
+basicstyle=\scriptsize\ttfamily,
+commentstyle=\ttfamily\color{gray},
+numbers=left,
+numberstyle=\ttfamily\color{gray}\footnotesize,
+stepnumber=1,
+numbersep=5pt,
+backgroundcolor=\color{white},
+showspaces=false,
+showstringspaces=false,
+showtabs=false,
+frame=single,
+tabsize=2,
+captionpos=b,
+breaklines=true,
+breakatwhitespace=false,
+title=\lstname,
+escapeinside={},
+keywordstyle={},
+morekeywords={}
+}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+\title{MAGEE: Mixed Model Association Test for GEne-Environment Interaction\\Version 1.0.0}
+\date{May 1, 2021}
+\author{Xinyu Wang\\Human Genetics Center\\Dept. of Biostatistics and Data Science\\School of Public Health\\The University of Texas Health Science Center at Houston\\Email: Xinyu.Wang@uth.tmc.edu\\\\Han Chen\\Human Genetics Center\\Dept. of Epidemiology, Human Genetics and Environmental Sciences\\School of Public Health\\Center for Precision Health\\School of Biomedical Informatics\\The University of Texas Health Science Center at Houston\\Email: Han.Chen.2@uth.tmc.edu\\\\Duy Pham\\Human Genetics Center\\Dept. of Epidemiology, Human Genetics and Environmental Sciences\\School of Public Health\\The University of Texas Health Science Center at Houston\\Email: duy.t.pham@uth.tmc.edu} 
+
+\maketitle
+\newpage
+\tableofcontents
+\newpage
+\section{Introduction}
+\textit{MAGEE} is an R package for gene-environment interaction (GEI) tests and joint tests (testing the marginal genetic effects and GEI effects simultaneously) for genome-wide association studies (GWAS) and large-scale sequencing studies \cite{Wang2020}. Based on the generalized linear mixed models (GLMMs) \cite{Breslow1993}, the tests within the MAGEE framework are highly efficient. 
+
+For GWAS, \textit{MAGEE} performs single variant test score tests for GEI and joint effects. For rare variant analysis, \textit{MAGEE} performs group tests based on user-defined variant sets.  The group-based tests include two GEI tests and three joint tests: interaction variance component test (IV), interaction hybrid test using Fisher's method (IF), joint variance component test (JV), joint hybrid test using Fisher's method (JF), and joint hybrid test using double Fisher's procedures (JD). Before running \textit{MAGEE} for analyzing the data across the whole genome, a global null model that only accounts for covariates (not including genetic main effects) is fitted. The model should be fitted using the R package \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT} \cite{Chen2016}.
+
+\section{The model}
+\subsection{The full model}
+The full model of MAGEE is:
+\begin{equation}
+g(\mu_i)=\mb{X}_i\bs\alpha+\mb{G}_i\bs\beta+\mb{K}_i\bs\gamma+r_i,\nonumber
+\end{equation}
+where $g(\cdot)$ is the link function of $\mu_i$, and $\mu_i$ is the conditional mean of the phenotype for individual $i$ given covariates $\mb{X}_i$, genotypes $\mb{G}_i$ and a random intercept $r_i$. $\mb{X}_i$ is a row vector of $p$ covariates including an intercept, $\mb{G}_i$ is a row vector of $q$ variants, and $\mb{K}_i$ is a row vector of $m\times q$ pairwise GEI terms for $m$ environmental factors (which are a subset of the $p$ covariates in $\mb{X}_i$) and $q$ variants. Accordingly, $\bs\alpha$ is a $p\times 1$ vector for the covariate effects, $\bs\beta$ is a $q\times 1$ vector for the genetic main effects, and $\bs\gamma$ is the $mq\times 1$ vector for GEI effects. Assuming the sample size is $N$, the length $N$ vector for the random intercept $\mb{r}\sim N(0, \sum_{l=1}^L\lambda_l\mb{\Psi}_l)$, where $\lambda_l$ are the variance component parameters for $L$ random effects, and $\mb{\Psi}_l$ are $N\times N$ known relatedness matrices.
+\subsection{GEI tests}
+\subsubsection{Interaction variance component test (IV)}
+IV test assumes $\bs{\gamma}\sim N(0, \tau \mb{W}_K^2)$, where $\mb{W}_K$ is an $mq\times mq$ predefined diagonal weight matrix for GEI. The weight matrix can be arbitrarily defined by the users, using either functional annotation scores \cite{Kircher2014, Rentzsch2019, Rogers2018} or a function of the minor allele frequency (MAF) \cite{Wu2011}. Testing for GEI effects $H_0: \bs{\gamma}=0$ is then equivalent to testing the variance component parameter $H_0: \tau =0$ versus $H_1: \tau > 0$.
+
+\subsubsection{Interaction hybrid test using Fisher's method (IF)}
+IF test is a hybrid test that combines a burden-type test \cite{Li2008} and an adjusted variance component test \cite{Wu2011}, which are asymptotically independent. When the true mean of interaction effects $\bs{\gamma}$ is not close to 0, IF test is supposed to achieve superior power than the IV test. IF test assumes $\bs{\gamma}\sim N(\mb{W}_K \mb{1}_{mq} \gamma_0, \tau \mb{W}_K^2)$, where $\mb{1}_{mq}$ is a vector of $\mb{1}$'s with length $mq$, and testing for GEI effects $H_0: \bs{\gamma}=0$ is equivalent to testing $H_0: \gamma_0=\tau =0$ versus $H_1: \gamma_0\ne 0$ or $\tau > 0$.
+
+\subsection{Joint tests}
+\subsubsection{Joint variance component test (JV)}
+JV test is a variance component joint analysis for genetic main effects and GEI effects simultaneously. JV test assumes $\bs{\beta}\sim N(0, \theta \mb{W}_G^2)$ and $\bs{\gamma}\sim N(0, \tau \mb{W}_K^2)$, where $\mb{W}_G$ is a $q\times q$ predefined diagonal weight matrix for genetic effects. Testing for $H_0: \bs{\beta}=\bs{\gamma}=0$ is equivalent to testing for $H_0: \theta =\tau =0$ versus $H_1: \theta > 0$ or $\tau > 0$. 
+
+\subsubsection{Joint hybrid test using Fisher's method (JF)}
+JF test combines burden and variance component test and jointly analyze the genetic main effects and GEI effects. JF test assumes  $\bs{\beta}\sim N(\mb{W}_G \mb{1}_{q} \beta_0, \theta \mb{W}_G^2)$ and $\bs{\gamma}\sim N(\mb{W}_K \mb{1}_{mq} \gamma_0, \tau \mb{W}_K^2)$, and test for $H_0: \beta_0 =\theta = \gamma_0 =\tau =0$ versus $H_1: \beta_0\ne 0$ or $\theta >0$ or $\gamma_0\ne 0$ or $\tau >0$. The JF test statistic combines the \textit{P} value for each parameter at once through Fisher's method \cite{Fisher1928}, which follows a Chi-square distribution with 8 degrees of freedom.
+
+\subsubsection{Joint hybrid test using double Fisher's procedures (JD)}
+JD test is also a hybrid joint analysis method for genetic main effects and GEI effects. JD test has the same assumption for $\bs\beta$ and $\bs\gamma$ as JF test, but it combines the \textit{P} values for the 4 parameters following an alternative strategy. Instead of combining the 4 \textit{P} values at once, JD test combines the \textit{P} value for genetic main effect (test for $\beta_0=\theta=0$), and then combine this \textit{P} value with the IF test \textit{P} value (test for $\gamma_0=\tau=0$) to get the joint test \textit{P} value. All the combination procedures use Fisher's method. The JF test statistic follows a Chi-square distribution with 4 degrees of freedom.
+
+Note: The main effect variance component test (MV) in \textit{MAGEE} is the same as SKAT for related samples \cite{Chen2013}. The main effect hybrid test using Fisher's method test (MF) in \textit{MAGEE} is the same as the efficient hybrid test \textit{SMMAT-E} \cite{Chen2019} in the \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT} package.  
+
+\section{Getting started}
+\subsection{Downloading \textit{MAGEE}}
+\textit{MAGEE} is an open source project and is freely available for download at \url{https://github.com/xwang21/MAGEE}. It can also be found as a regular R package and downloaded from CRAN (\url{https://CRAN.R-project.org/package=MAGEE}).
+
+\subsection{Installing \textit{MAGEE}}
+The following R packages are required before installing \textit{MAGEE}: \href{https://cran.r-project.org/web/packages/Rcpp/index.html}{Rcpp} and \href{https://cran.r-project.org/web/packages/RcppArmadillo/index.html}{RcppArmadillo} for R and C++ integration and \href{https://cran.r-project.org/web/packages/testthat/index.html}{testthat} to run code checks during development. Additionally, \textit{MAGEE} imports from \href{https://cran.r-project.org/web/packages/Rcpp/index.html}{Rcpp}, \href{https://cran.r-project.org/web/packages/CompQuadForm/index.html}{CompQuadForm}, \href{https://cran.r-project.org/web/packages/foreach/index.html}{foreach}, \href{https://cran.r-project.org/web/views/HighPerformanceComputing.html}{parallel}, \href{https://cran.r-project.org/web/packages/Matrix/index.html}{Matrix}, methods, \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT}, and Bioconductor packages \href{http://bioconductor.org/packages/release/bioc/html/SeqArray.html}{SeqArray} and \href{http://bioconductor.org/packages/release/bioc/html/SeqVarTools.html}{SeqVarTools}. From \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT}, the \textbf{glmmkin} function is exported for availability to the users. The R package \href{https://cran.r-project.org/web/packages/doMC/index.html}{doMC} is required to run parallel computing in \textbf{glmm.gei} and \textbf{MAGEE} (\href{https://cran.r-project.org/web/packages/doMC/index.html}{doMC} is not available on Windows and these functions will switch to a single compute thread). 
+
+For optimal computational performance, it is recommended to use an R version configured with the Intel Math Kernel Library (or other fast BLAS/LAPACK libraries). See the instructions on building R with Intel MKL (\url{https://software.intel.com/en-us/articles/using-intel-mkl-with-r}).
+
+Here is an example for installing \textit{MAGEE} and all its dependencies in an R session (assuming none of the R packages other than the default has been installed):
+
+<<installation, eval=FALSE, echo=TRUE>>=
+## try http:// if https:// URLs are not supported
+## remove "doMC" below if you are running Windows
+install.packages(c("devtools", "RcppArmadillo", "CompQuadForm", "doMC", 
+        "foreach", "Matrix", "GMMAT", "BiocManager", "testthat"), 
+	repos = "https://cran.r-project.org/")
+BiocManager::install(c("SeqArray", "SeqVarTools"))
+devtools::install_github("https://github.com/xwang21/MAGEE")
+@
+
+\section{Input}
+MAGEE requires an object from fitting the null model using the \textbf{glmm.kin} function from the \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT} package, and a genotype file in a GDS or \href{https://www.well.ox.ac.uk/~gav/bgen_format/spec/latest.html}{BGEN format}. For rare variant analysis, a user-defined group definition file is also required. Specified formats of these files are described as follows. 
+
+\subsection{Object}
+MAGEE can perform analysis of gene by multiple environmental factors on multiple traits. To fit the null model, the phenotype and covariates (include the environmental factors of interest) should be saved in a data frame. If the samples are related, the relatedness should be known positive semidefinite matrices $\mb{V}_k$ as an R matrix (in the case of a single matrix) or an R list (in the case of multiple matrices). Refer to the GMMAT user manual (\url{https://cran.r-project.org/web/packages/GMMAT/vignettes/GMMAT.pdf}) to learn the method of fitting the null model. The class of the object should be either "glmmkin" or "glmmkin.multi". 
+
+\subsection{Genotypes}
+\textit{MAGEE} can take genotype files either in the GDS format or in any version of the \href{https://www.well.ox.ac.uk/~gav/bgen_format/spec/latest.html}{BGEN format}. Genotypes in Variant Call Format (VCF) and \href{http://zzz.bwh.harvard.edu/plink/data.shtml#bed}{PLINK binary PED format} can be converted to the GDS format using seqVCF2GDS and seqBED2GDS functions from the \href{http://bioconductor.org/packages/release/bioc/html/SeqArray.html}{SeqArray} package:
+<<convert2GDS, eval=FALSE, echo=TRUE>>=
+SeqArray::seqVCF2GDS("VCF_file_name", "GDS_file_name")
+SeqArray::seqBED2GDS("BED_file_name", "FAM_file_name", "BIM_file_name", 
+        "GDS_file_name")
+@
+
+\subsection{Group definition file}
+For rare variant analysis, a user-defined group definition file with no header and 6 columns (variant set id, variant chromosome, variant position, variant reference allele, variant alternate allele, weight) is also required. For example, here we show the first 6 rows of the example group definition file "SetID.withweights.txt":
+\begin{verbatim}
+Set1    1       1       T       A       1
+Set1    1       2       A       C       4
+Set1    1       3       C       A       3
+Set1    1       4       G       A       6
+Set1    1       5       A       G       9
+Set1    1       6       C       A       9
+\end{verbatim}
+Note that each variant in the group definition file is matched by chromosome, position, reference allele and alternate allele with variants from the GDS file. One genetic variant can be included in different groups with possibly different weights. If no external weights are needed in the analysis, simply replace the 6th column by all 1's.
+
+\section{Running \textit{MAGEE}}
+If \textit{MAGEE} has been successfully installed, you can load it in an R session using
+
+<<loading, eval=FALSE, echo=TRUE>>=
+library(MAGEE)
+@
+
+There are 2 functions in \textit{MAGEE}: for single variant GEI and joint analysis, use \textbf{glmm.gei}; for rare variant set-based GEI and joint analysis, use \textbf{MAGEE}; Details about how to use these functions, their arguments and returned values can be found in the R help document of \textit{MAGEE}. For example, to learn more about \textbf{MAGEE} in an R session you can type 
+<<help, eval=FALSE, echo=TRUE>>=
+?MAGEE
+@
+
+\subsection{Fitting GLMM}
+Both \textbf{MAGEE} and \textbf{glmm.gei} requires a "glmmkin" or "glmmkin.multi" class object that contains a fitted GLMM null model. The object can be obtained from the \textbf{glmmkin} function from the R package \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT}. For more examples and details about the \textbf{glmmkin} function, see the \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT} manual (\url{https://cran.r-project.org/web/packages/GMMAT/vignettes/GMMAT.pdf}). Below is an example of fitting a GLMM using the \textbf{glmmkin} function from \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT}:
+<<MAGEEglmmkingds, eval=FALSE, echo=TRUE>>=
+GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "MAGEE")
+GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
+model0 <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM,
+                  id = "id", family = binomial(link = "logit"))
+@
+
+\subsection{Single variant tests}
+Here is a simple example of single variant score tests using \textbf{glmm.gei}:
+\subsubsection{Score tests}
+<<MAGEEgeigds, eval=FALSE, echo=TRUE>>=
+infile <- system.file("extdata", "geno.gds", package = "MAGEE")
+glmm.gei(model0, interaction='sex', geno.file = infile, 
+         outfile = "glmm.gei.gds.testoutfile.txt")
+@
+The first argument in \textbf{glmm.gei} is the returned glmmkin class object from fitting the null model. The argument "interaction" can be either a character vector indicating one or multiple environmental factors, or a numerical vector indicating the column numbers for the environmental factors in the covariate matrix. The argument "geno.file" is the name (and path if not in the current working directory) of the genotype file, and the argument "outfile" is the name of the output file. 
+
+Alternatively, if your genotype information is saved as a BGEN file "geno.bgen" and includes a BGEN sample file "geno.sample", you can use:
+<<MAGEEgeibgen, eval=FALSE, echo=TRUE>>=
+infile <- system.file("extdata", "geno.bgen", package = "MAGEE")
+samplefile <- system.file("extdata", "geno.sample", package = "MAGEE")
+glmm.gei(model0, interaction='sex', geno.file = infile, 
+         outfile = "glmm.gei.bgen.testoutfile.txt",
+         bgen.samplefile = samplefile)
+@
+
+The function \textbf{glmm.gei} returns no value for GDS and BGEN genotype files.
+
+\subsection{Variant set tests}
+Variant set tests in a single study (or a pooled analysis of multiple studies) can be performed using the function \textbf{MAGEE}. In addition to an object returned from the function \textbf{glmmkin}, a group definition file with no header and 6 columns (variant set id, variant chromosome, variant position, variant reference allele, variant alternate allele, weight) is also required, as described in \textbf{section 4.3}. An example of running \textbf{MAGEE}:
+<<MAGEEmageegds, eval=FALSE, echo=TRUE>>=
+geno.file <- system.file("extdata", "geno.gds", package = "MAGEE")
+group.file <- system.file("extdata", "SetID.withweights.txt", 
+                          package = "MAGEE")
+out <- MAGEE(model0, interaction='sex', geno.file, group.file, 
+             group.file.sep = "\t", tests=c("JV", "JF", "JD"))
+@
+The first argument in \textbf{MAGEE} is the returned glmmkin class object from fitting the null model. The argument "interaction" can be either a character vector indicating one or multiple environmental factors, or a numerical vector indicating the column numbers for the environmental factors in the covariate matrix. The argument "geno.file" is the name (and path if not in the current working directory) of the genotype file, and the argument "group.file" is the name of the group definition file. The users can choose one or more test types as "IV", "IF", "JV", "JF", and "JD" in the "tests" argument. Note that the JV test also returns the \textit{P} value from MV and IV tests, and the JF and JD tests also return the \textit{P} value from MF and IF tests. Therefore, the above example gives the test results for all the seven tests.
+
+\section{Output}
+\subsection{Single variant tests}
+The single variant test function \textbf{glmm.gei} generates a tab-delimited plain text output file. Here we show the header and the first five rows of the example output for each genotype file input.
+
+If you use a GDS genotype file "geno.gds", here are the header and the first 5 rows of the example output "glmm.gei.gds.testoutfile.txt" using the default settings from \textbf{glmm.gei}:
+\begin{verbatim}
+SNP     CHR     POS     REF     ALT     N      MISSRATE AF      
+SNP1    1       1       T       A       393    0.0175   0.974554707379135
+SNP2    1       2       A       C       400    0        0.5     
+SNP3    1       3       C       A       400    0        0.7925  
+SNP4    1       4       G       A       400    0        0.70125 
+SNP5    1       5       A       G       400    0        0.59375 
+...
+AF.strata.min   AF.strata.max   BETA.MAIN      SE.MAIN      PVAL.MAIN  
+0.9720812       0.9770408       -0.43565484    0.4684802    0.3524062 
+0.4700000       0.5300000       0.07576315     0.1469115    0.6060598
+0.7825000       0.8025000       0.01743008     0.1807686    0.9231854
+0.6850000       0.7175000       0.07688790     0.1571101    0.6245666 
+0.5725000       0.6150000       -0.09464890    0.1537993    0.5382872
+...
+STAT.INT     PVAL.INT     PVAL.JOINT
+0.2918603    0.5890309    0.5608414
+0.1591065    0.6899805    0.8085364
+1.6663553    0.1967474    0.4326500
+1.2749996    0.2588309    0.4689541
+0.9141454    0.3390169    0.5239105
+\end{verbatim}
+The first 5 columns are extracted from the GDS file: SNP ("annotation/id"), CHR ("chromosome"), POS ("position"), reference and alternate alleles ("allele"). Results are included in 11 columns for the ALT allele: the sample size N (with non-missing genotypes), the genotype missing rate MISSRATE, the allele frequency (AF), the minimum and maximum allele frequency after stratification (AF.strata.min/AF.strata.max), the coefficient estimate for the marginal genetic effect (BETA.MAIN), the variance of the marginal genetic effect (SE.MAIN), the main effect score test \textit{P} value PVAL.MAIN, the gene-environment interaction score STAT.INT, the gene-environment interaction test \textit{P} value PVAL.INT, and the joint test \textit{P} value PVAL.JOINT.
+
+If you use a BGEN genotype file "geno.bgen", here are the header and the first 5 rows of the example output "glmm.gei.bgen.testoutfile.txt" using the default settings from \textbf{glmm.gei}:
+\begin{verbatim}
+SNP    RSID   CHR   POS   A1    A2    N      MISSRATE AF      
+SNP1   SNP1   1     1     T     A     393    0.0175   0.974554707379135
+SNP2   SNP2   1     2     A     C     400    0        0.5     
+SNP3   SNP3   1     3     C     A     400    0        0.7925  
+SNP4   SNP4   1     4     G     A     400    0        0.70125 
+SNP5   SNP5   1     5     A     G     400    0        0.59375 
+...
+AF.strata.min   AF.strata.max   BETA.MAIN      SE.MAIN  
+0.9720812       0.9770408       -0.43565484    0.4684802
+0.4700000       0.5300000       0.07576315     0.1469115
+0.7825000       0.8025000       0.01743008     0.1807686
+0.6850000       0.7175000       0.07688790     0.1571101
+0.5725000       0.6150000       -0.09464890    0.1537993 
+...
+PVAL.MAIN    STAT.INT     PVAL.INT     PVAL.JOINT
+0.352406     0.291860     0.589031     0.560841
+0.606060     0.159106     0.689980     0.808536
+0.923185     1.666360     0.196747     0.432650
+0.624567     1.275000     0.258831     0.468954
+0.538287     0.914145     0.339017     0.523911
+\end{verbatim}
+The first 6 columns are copied from the BGEN file: the SNP, RSID, chromosome CHR, physical position POS, and the first and second alleles A1 and A2. Results are included in 11 columns for the second allele in the BGEN file: the sample size N (with non-missing genotypes), the genotype missing rate MISSRATE, the allele frequency (AF), the minimum and maximum allele frequency after stratification (AF.strata.min/AF.strata.max), the coefficient estimate for the marginal genetic effect (BETA.MAIN), the standard deviation of the marginal genetic effect (SE.MAIN), the main effect score test \textit{P} value PVAL.MAIN, the gene-environment interaction score STAT.INT, the gene-environment interaction test \textit{P} value PVAL.INT, and the joint test \textit{P} value PVAL.JOINT.
+
+For both GDS and BGEN file formats, if the argument meta.output = TRUE, \textbf{glmm.gei} will output additional columns containing the coefficients and variance-covariance of the interaction terms.
+
+\subsection{Variant set-based tests}
+The \textbf{MAGEE} function returns a data.frame object for both GDS and BGEN genotype file inputs. Below are examples for the first 5 rows of the example output: 
+\begin{verbatim}
+group    n.variants   miss.min   miss.mean   miss.max
+Set1     20           0          0.000875    0.0175
+Set2     20           0          0.000000    0.0000
+Set3     20           0          0.000000    0.0000
+Set4     20           0          0.000000    0.0000
+Set5     20           0          0.000000    0.0000 
+...
+freq.min   freq.mean   freq.max   freq.strata.min   freq.strata.max
+0.5000     0.8150402   0.99125    0.47              0.9950 
+0.6400     0.8795625   0.99125    0.63              0.9950
+0.5675     0.8385000   0.98875    0.56              0.9950
+0.5075     0.7450625   0.98375    0.50              0.9900
+0.5050     0.7266250   0.98375    0.49              0.9900
+...
+MV.pval      MF.pval      IV.pval      IF.pval
+0.1161530    0.1888730    0.2309887    0.2999593
+0.8984427    0.9611505    0.7955216    0.7048124
+0.4849650    0.5054350    0.6238591    0.2223911
+0.3678975    0.1128065    0.3670468    0.1513834
+0.1360848    0.3095582    0.6059774    0.7587549
+...
+JV.pval      JF.pval       JD.pval
+0.1239074    0.20058700    0.2192965
+0.9547726    0.94709001    0.9412548
+0.6642510    0.34011753    0.3580810
+0.4054061    0.07679027    0.0865809
+0.2882450    0.57320809    0.5751443
+\end{verbatim}
+The first column contains the group name (group) followed by the number of variants in the group in the second column (n.variants). The results are included in the next 15 columns: the minimum, mean, and maximum average missing genotype rate for all variants in the group (miss.min/miss.mean/miss.max), the minimum, mean, and maximum allele frequency for all variants in the group (freq.min/freq.mean/freq.max), the minimum and maximum allele frequency for all variants in the group after stratification (freq.strata.min/freq.strata.max), and \textit{P} values for the MV test (MV.pval), MF test (MF.pval), IV test (IV.pval), IF test (IF.pval), JV test (JV.pval), JF test (JF.pval), and JD test (JD.pval).
+
+\section{Advanced options}
+\subsection{Missing genotypes}
+It is recommended to perform genotype quality control prior to analysis to impute missing genotypes or filter out SNPs with high missing rates. However, \textit{MAGEE} does allow missing genotypes, and imputes to the mean value by default (missing.method = "impute2mean") in both \textbf{glmm.gei} and \textbf{MAGEE}. Alternatively, in \textbf{glmm.gei} missing genotypes can be omitted from the analysis using
+\begin{verbatim}
+missing.method = "omit"
+\end{verbatim}
+In variant set tests using \textbf{MAGEE}, instead of imputing missing genotypes to the mean value, you can impute missing genotypes to 0 (homozygous reference allele) using
+\begin{verbatim}
+missing.method = "impute2zero"
+\end{verbatim}
+
+\subsection{Parallel computing}
+Parallel computing can be enabled in \textbf{glmm.gei} and \textbf{MAGEE} using the argument "ncores" to specify how many cores you would like to use on a computing node. By default "ncores" is 1, meaning that these functions will run in a single thread.
+
+For \textbf{glmm.gei}, if you enable parallel computing, multiple temporary files will be placed in the directory. For example, if your "ncores = 12" and you specify "glmm.gei.gds.testoutfile.txt" as your output file name, then 12 files "glmm.gei.gds.testoutfile.txt\_tmp.1", \\"glmm.gei.gds.testoutfile.txt\_tmp.2", ..., "glmm.gei.gds.testoutfile.txt\_tmp.12" will be generated from each thread to store the results. The results from each temporary file will then be combined into a single file with the output file name "glmm.gei.gds.testoutfile.txt" as the file name when all threads have completed.
+
+If your R is configured with Intel MKL and you would like to enable parallel computing, it is recommended that you set the environmental variable "MKL\_NUM\_THREADS = 1" before running R to avoid hanging. Alternatively, you can do this at the beginning of your R script by using
+<<MKL, eval=FALSE, echo=TRUE>>=
+Sys.setenv(MKL_NUM_THREADS = 1)
+@
+
+For Mac OS users using R configured with OpenBLAS, the R package \href{https://cran.r-project.org/web/packages/RhpcBLASctl/index.html}{RhpcBLASctl} may help set the number of threads used by OpenBLAS to 1. The following lines of code can be used at the beginning of your R script:
+<<RhpcBLASctlL, eval=FALSE, echo=TRUE>>=
+#install.packages("RhpcBLASctl")
+library(RhpcBLASctl)
+blas_set_num_threads(1)
+@
+
+\subsection{Variant filters}
+Variants can be filtered in \textbf{glmm.gei} and \textbf{MAGEE} based on minor allele frequency (MAF) and missing rate filters. The argument "MAF.range" specifies the minimum and maximum MAFs for a variant to be included in the analysis. By default the minimum MAF is $1\times 10^{-7}$ and the maximum MAF is 0.5, meaning that only monomorphic markers in the sample will be excluded (if your sample size is no more than 5 million). The argument "miss.cutoff" specifies the maximum missing rate for a variant to be included in the analysis. By default it is set to 1, meaning that no variants will be removed due to high genotype missing rates.
+
+\subsection{Internal minor allele frequency weights}
+Internal weights are calculated based on the minor allele frequency (NOT the effect allele frequency, therefore, variants with effect allele frequencies 0.01 and 0.99 have the same weights) as a beta probability density function. Internal weights are multiplied by the external weights given in the last column of the group definition file. To turn off internal weights, use
+\begin{verbatim}
+MAF.weights.beta = c(1, 1)
+\end{verbatim}
+to assign flat weights, as a beta distribution with parameters 1 and 1 is a uniform distribution on the interval between 0 and 1.
+
+\subsection{Allele flipping}
+In variant set tests \textbf{MAGEE}, by default the alt allele is used as the coding allele and variants in each variant set are matched strictly on chromosome, position, reference and alternate alleles.
+
+The argument "auto.flip" allows automatic allele flipping if a specified variant is not found in the genotype file, but a variant at the same chromosome and position with reference allele matching the alternate allele in the group definition file "group.file", and alternate allele matching the reference allele in the group definition file "group.file", to be included in the analysis. Please use with caution for whole genome sequence data, as both ref/alt and alt/ref variants at the same position are not uncommon, and they are likely two different variants, rather than allele flipping.
+
+The argument "use.minor.allele" allows using the minor allele instead of the alt allele as the coding allele in variant set tests.
+
+\subsection{\textit{P} values of weighted sum of chi-squares}
+In variant set tests \textbf{MAGEE}, you can use 3 methods in the "method" argument to compute \textit{P} values of weighted sum of chi-square distributions: "davies" \cite{davies1980}, "kuonen" \cite{kuonen1999} and "liu" \cite{liu2009}. By default "davies" is used, if it returns an error message in the calculation, or a \textit{P} value greater than 1, or less than $1\times 10^{-5}$, "kuonen" method will be used. If "kuonen" method fails to compute the \textit{P} value, "liu" method will be used.
+
+\subsection{Other options}
+By default, genotypes are centered to the mean before the analysis in single variant tests \textbf{glmm.gei}. You can turn this feature off by specifying \begin{verbatim} center = FALSE \end{verbatim} to use raw genotypes.
+
+In \textbf{glmm.gei}, by default 100 SNPs are tested in a batch. You can change it using the "nperbatch" argument, but the computational time can increase substantially if it is either too small or too large, depending on the performance of your computing system.
+
+In the variant set tests \textbf{MAGEE}, by default the group definition file "group.file" should be tab delimited, but you can change it using the "group.file.sep" argument.
+
+There is a "Garbage.Collection" argument (default FALSE), if turned on, \textbf{MAGEE} will call the function \textbf{gc} for each variant set tested. It helps save memory footprint, but the computation speed might be slower.
+
+\section{Version}
+\subsection{Version 0.1.1 (February 25, 2020)}
+Initial public release of \textit{MAGEE}.
+
+\subsection{Version 1.0.0 (May 1, 2021)}
+\begin{enumerate}
+\item Support BGEN file format in both \textbf{glmm.gei} and \textbf{MAGEE} functions.
+\item Allow adjustment for interaction covariates in both \textbf{glmm.gei} and \textbf{MAGEE} functions.
+\item Include a meta.output argument for \textbf{glmm.gei} to output additional summary statistics for the interaction terms.
+\end{enumerate}
+
+
+\section{Contact}
+Please refer to the R help document of \textit{MAGEE} for specific questions about each function. For comments, suggestions, bug reports and questions, please contact Han Chen (Han.Chen.2@uth.tmc.edu). For bug reports, please include an example to reproduce the problem without having to access your confidential data.
+
+\section{Acknowledgments}
+This work was supported by National Institutes of Health (NIH) grants R00 HL130593 and R01 HL145025.
+
+\begin{thebibliography}{13}
+
+\bibitem{Wang2020} Wang, X., Lim, E., Liu, C, Sung, Y. J., Rao, D. C., Morrison, A. C., Boerwinkle, E., Manning, A. K., and Chen, H. Efficient gene-environment interaction tests for large biobank-scale sequencing studies. \textit{Genetic Epidemiology} \textbf{44, 8,} 908--923 (2020)
+.
+
+\bibitem{Breslow1993} Breslow, N. E. and Clayton, D. G. Approximate inference in generalized linear mixed models. \textit{Journal of the American Statistical Association} \textbf{88,} 9--25 (1993).
+
+\bibitem{Chen2016} Chen, H., Wang, C., Conomos, M. P., Stilp, A. M., Li, Z., Sofer, T., Szpiro, A. A., Chen, W., Brehm, J. M., Celed\'{o}n, J. C., Redline, S., Papanicolaou, G. J., Thornton, T. A., Laurie, C. C., Rice, K. and Lin, X. Control for Population Structure and Relatedness for Binary Traits in Genetic Association Studies via Logistic Mixed Models. \textit{The American Journal of Human Genetics} \textbf{98,} 653--666 (2016).
+
+\bibitem{Kircher2014} Kircher, M., Witten, D. M., Jain, P., O'Roak, B., Cooper, G. M., and Shendure, J. A general framework for estimating the relative pathogenicity of human genetic variants. \textit{Nature Genetics} \textbf{46(3),} 310-315 (2014). 
+
+\bibitem{Rentzsch2019} Rentzsch, P., Witten, D., Cooper, G. M., Shendure, J., and Kircher, M. CADD: Predicting the deleteriousness of variants throughout the human genome. \textit{Nucleic Acids Research} \textbf{47,} D886-D894 (2019). 
+
+\bibitem{Rogers2018} Rogers, M. F., Shihab, H. A., Mort, M., Cooper, D. N., Gaunt, T. R., and Campbell, C. FATHMM-XF: Accurate prediction of pathogenic point mutations via extended features. \textit{Computer Applications in the Biosciences; Bioinformatics} \textbf{34(3),} 511-513 (2018). 
+
+\bibitem{Wu2011} Wu, M. C., Lee, S., Cai, T., Li, Y., Boehnke, M. and Lin, X. Rare-variant association testing for sequencing data with the sequence kernel association test. \textit{The American Journal of Human Genetics} \textbf{89,} 82--93 (2011).
+
+\bibitem{Li2008} Li, B. and Leal, S. M. Methods for detecting associations with rare variants for common diseases: Application to analysis of sequence data. \textit{The American Journal of Human Genetics} \textbf{83,} 311--321 (2008).
+
+\bibitem{Fisher1928} Fisher, R. A. Statistical methods for research workers. \textit{Journal of Comparative Pathology and Therapeutics} \textbf{41,} 261-262 (1928). 
+
+\bibitem{Chen2013} Chen, H., Meigs, J. B., and Dupuis, J. Sequence kernel association test for quantitative traits in family samples. \textit{Genetic Epidemiology} \textbf{37(2),} 196 (2013). 
+
+\bibitem{Chen2019} Chen, H., Huffman, J. E., Brody, J. A., Wang, C., Lee, S., Li, Z., Gogarten, S. M., Sofer, T., Bielak, L. F., Bis, J. C., \textit{et al.} Efficient variant set mixed model association tests for continuous and binary traits in large-scale whole-genome sequencing studies. \textit{The American Journal of Human Genetics} \textbf{104,} 260--274 (2019).
+
+\bibitem{davies1980} Davies, R. B. Algorithm AS 155: The Distribution of a Linear Combination of $\chi^2$ Random Variables. \textit{Journal of the Royal Statistical Society. Series C (Applied Statistics)} \textbf{29,} 323--333 (1980).
+
+\bibitem{kuonen1999} Kuonen, D. Saddlepoint Approximations for Distributions of Quadratic Forms in Normal Variables. \textit{Biometrika} \textbf{86,} 929--935 (1999).
+
+\bibitem{liu2009} Liu, H., Tang, Y. and Zhang, H. H. A new chi-square approximation to the distribution of non-negative definite quadratic forms in non-central normal variables. \textit{Computational Statistics \& Data Analysis} \textbf{53,} 853--856 (2009).
+\end{thebibliography}
+\end{document}

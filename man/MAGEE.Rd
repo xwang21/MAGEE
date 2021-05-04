@@ -23,7 +23,7 @@ MAGEE.prep(null.obj, interaction, geno.file, group.file, group.file.sep = "\t",
 MAGEE.lowmem(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(1e-7, 0.5), 
              MAF.weights.beta = c(1, 25), miss.cutoff = 1, missing.method = "impute2mean", 
              method = "davies", tests = "JF", use.minor.allele = FALSE, 
-             Garbage.Collection = FALSE, is.dosage = FALSE, ncores = 1, verbose = FALSE)
+             Garbage.Collection = FALSE, is.dosage = FALSE, ncores = 1)
 }
 
 \arguments{

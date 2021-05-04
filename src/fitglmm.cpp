@@ -134,7 +134,7 @@ extern "C"
       //const double tol = 1e-5;
       size_t ncount, nmiss, npbidx = 0;
       double compute_time = 0.0;
-      ofstream writefile(outfile.c_str(), std::ios_base::app);
+      ofstream writefile(outfile.c_str(), std::ofstream::binary);
       
       struct libdeflate_decompressor* decompressor = libdeflate_alloc_decompressor();
       
@@ -526,8 +526,11 @@ extern "C"
          for(size_t j=0; j<npbidx; ++j) {
            if(snp_skip[j] == 1) { // monomorphic, missrate, MAF
              writefile << tmpout[j] << "NA\tNA\tNA\tNA\tNA\tNA";
-             for (int e=0; e < (ei + (ei*ei)); e++) {
-               writefile << "\tNA";
+             
+             if (metaOutput) {
+               for (int e=0; e < (ei + (ei * (ei - 1) / 2)); e++) {
+                 writefile << "\tNA";
+               } 
              }
              writefile << "\n";
            } 
@@ -668,7 +671,7 @@ extern "C"
       //const double tol = 1e-5;
       size_t ncount, nmiss, npbidx = 0;
       double compute_time = 0.0;
-      ofstream writefile(outfile.c_str(), std::ios_base::app);
+      ofstream writefile(outfile.c_str(), std::ofstream::binary);
       
       struct libdeflate_decompressor* decompressor = libdeflate_alloc_decompressor();
       
@@ -974,6 +977,12 @@ extern "C"
           for(size_t j=0; j<npbidx; ++j) {
             if(snp_skip[j] == 1) { // monomorphic, missrate, MAF
               writefile << tmpout[j] << "NA\tNA\tNA\tNA\tNA\tNA";
+              
+              if (metaOutput) {
+                for (int e=0; e < (ei +  (ei * (ei - 1) / 2)); e++) {
+                  writefile << "\tNA";
+                }
+              }
               for (int e=0; e < (ei + (ei*ei)); e++) {
                 writefile << "\tNA";
               }

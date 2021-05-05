@@ -528,7 +528,7 @@ extern "C"
              writefile << tmpout[j] << "NA\tNA\tNA\tNA\tNA\tNA";
              
              if (metaOutput) {
-               for (int e=0; e < (ei + (ei * (ei - 1) / 2)); e++) {
+               for (int e=0; e < (ei + ei + (ei * (ei - 1) / 2)); e++) {
                  writefile << "\tNA";
                } 
              }
@@ -977,7 +977,7 @@ extern "C"
               writefile << tmpout[j] << "NA\tNA\tNA\tNA\tNA\tNA";
               
               if (metaOutput) {
-                for (int e=0; e < (ei +  (ei * (ei - 1) / 2)); e++) {
+                for (int e=0; e < (ei + ei + (ei * (ei - 1) / 2)); e++) {
                   writefile << "\tNA";
                 }
               }

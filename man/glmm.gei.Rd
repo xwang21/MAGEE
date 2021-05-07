@@ -62,7 +62,6 @@ Chen, H., Wang, C., Conomos, M.P., Stilp, A.M., Li, Z., Sofer, T., Szpiro, A.A.,
 Xinyu Wang, Han Chen, Duy Pham
 }
 \examples{
-\dontrun{
   data(example)
   attach(example)
   
@@ -80,7 +79,6 @@ Xinyu Wang, Han Chen, Duy Pham
            bgen.samplefile = samplefile)
   
   unlink(paste0("glmm.gei.", c("gds","bgen"), ".testoutfile.txt"))
-}
 }
 \keyword{ generalized linear mixed model }
 \keyword{ gene-environment interaction }

@@ -62,23 +62,24 @@ Chen, H., Wang, C., Conomos, M.P., Stilp, A.M., Li, Z., Sofer, T., Szpiro, A.A.,
 Xinyu Wang, Han Chen, Duy Pham
 }
 \examples{
+  library(GMMAT)
   data(example)
   attach(example)
-  
+
   model0 <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM,
                     id = "id", family = binomial(link = "logit"))
-                    
+                   
   infile <- system.file("extdata", "geno.gds", package = "MAGEE")
-  outfile <- "glmm.gei.gds.testoutfile.txt"
-  glmm.gei(model0, interaction='sex', geno.file = infile, outfile = outfile)
+  gds_outfile <- tempfile()
+  glmm.gei(model0, interaction='sex', geno.file = infile, outfile = gds_outfile)
   
   infile <- system.file("extdata", "geno.bgen", package = "MAGEE")
   samplefile <- system.file("extdata", "geno.sample", package = "MAGEE")
-  outfile <- "glmm.gei.bgen.testoutfile.txt"
-  glmm.gei(model0, interaction='sex', geno.file = infile, outfile = outfile,
+  bgen_outfile <- tempfile()
+  glmm.gei(model0, interaction='sex', geno.file = infile, outfile = bgen_outfile,
            bgen.samplefile = samplefile)
   
-  unlink(paste0("glmm.gei.", c("gds","bgen"), ".testoutfile.txt"))
+  unlink(paste0("glmm.gei.", c("gds","bgen"), bgen_outfile, gds_outfile))
 }
 \keyword{ generalized linear mixed model }
 \keyword{ gene-environment interaction }

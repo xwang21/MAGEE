@@ -4,8 +4,8 @@ Version: 1.0.0
 Date: 2021-05-01
 Title: Mixed Model Association Test for GEne-Environment Interaction
 Authors@R: c(person("Xinyu", "Wang", role = c("aut", "cre"), email = "xinyu.wang@uth.tmc.edu"),
-             person("Han", "Chen", role = c("aut", "cph"), email = "han.chen.2@uth.tmc.edu"),
-             person("Duy", "Pham", role = c("aut", "ctb"), email = "duy.t.pham@uth.tmc.edu"))
+             person("Han", "Chen", role = "aut", email = "han.chen.2@uth.tmc.edu"),
+             person("Duy", "Pham", role = "aut", email = "duy.t.pham@uth.tmc.edu"))
 Description: Use a 'glmmkin' class object from the null generalized linear mixed-effect model (GLMM) to perform variant set-based main effect tests, gene-environment interaction tests, and joint tests for association, as proposed in Wang et al. (2020) <DOI:10.1002/gepi.22351>.
 License: GPL-3
 Copyright: See COPYRIGHTS for details.

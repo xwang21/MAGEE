@@ -150,6 +150,8 @@ Chen, H., Huffman, J.E., Brody, J.A., Wang, C., Lee, S., Li, Z., Gogarten, S.M.,
 Xinyu Wang, Han Chen, Duy Pham
 }
 \examples{
+\donttest{
+library(GMMAT)
     data(example)
     attach(example)
     model0 <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM,
@@ -159,6 +161,7 @@ Xinyu Wang, Han Chen, Duy Pham
     out <- MAGEE(model0, interaction='sex', geno.file, group.file, group.file.sep = "\t",
                  tests=c("JV", "JF", "JD"))
     print(out)
+}
 }
 \keyword{ variant set-based test }
 \keyword{ generalized linear mixed model }

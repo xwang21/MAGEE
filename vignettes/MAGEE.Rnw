@@ -1,4 +1,4 @@
-%\VignetteIndexEntry{GMMAT}
+%\VignetteIndexEntry{MAGEE}
 \documentclass[a4paper,12pt]{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath}
@@ -151,18 +151,19 @@ Here is a simple example of single variant score tests using \textbf{glmm.gei}:
 \subsubsection{Score tests}
 <<MAGEEgeigds, eval=FALSE, echo=TRUE>>=
 infile <- system.file("extdata", "geno.gds", package = "MAGEE")
+gds_outfile <- tempfile()
 glmm.gei(model0, interaction='sex', geno.file = infile, 
-         outfile = "glmm.gei.gds.testoutfile.txt")
+         outfile = gds_outfile)
 @
 The first argument in \textbf{glmm.gei} is the returned glmmkin class object from fitting the null model. The argument "interaction" can be either a character vector indicating one or multiple environmental factors, or a numerical vector indicating the column numbers for the environmental factors in the covariate matrix. The argument "geno.file" is the name (and path if not in the current working directory) of the genotype file, and the argument "outfile" is the name of the output file. 
 
 Alternatively, if your genotype information is saved as a BGEN file "geno.bgen" and includes a BGEN sample file "geno.sample", you can use:
 <<MAGEEgeibgen, eval=FALSE, echo=TRUE>>=
 infile <- system.file("extdata", "geno.bgen", package = "MAGEE")
+bgen_outfile <- tempfile()
 samplefile <- system.file("extdata", "geno.sample", package = "MAGEE")
 glmm.gei(model0, interaction='sex', geno.file = infile, 
-         outfile = "glmm.gei.bgen.testoutfile.txt",
-         bgen.samplefile = samplefile)
+         outfile = bgen_outfile, bgen.samplefile = samplefile)
 @
 
 The function \textbf{glmm.gei} returns no value for GDS and BGEN genotype files.

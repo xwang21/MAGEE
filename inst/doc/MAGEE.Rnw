@@ -1,4 +1,4 @@
-%\VignetteIndexEntry{GMMAT}
+%\VignetteIndexEntry{MAGEE}
 \documentclass[a4paper,12pt]{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath}
@@ -82,7 +82,7 @@ Note: The main effect variance component test (MV) in \textit{MAGEE} is the same
 \textit{MAGEE} is an open source project and is freely available for download at \url{https://github.com/xwang21/MAGEE}. It can also be found as a regular R package and downloaded from CRAN (\url{https://CRAN.R-project.org/package=MAGEE}).
 
 \subsection{Installing \textit{MAGEE}}
-The following R packages are required before installing \textit{MAGEE}: \href{https://cran.r-project.org/web/packages/Rcpp/index.html}{Rcpp} and \href{https://cran.r-project.org/web/packages/RcppArmadillo/index.html}{RcppArmadillo} for R and C++ integration and \href{https://cran.r-project.org/web/packages/testthat/index.html}{testthat} to run code checks during development. Additionally, \textit{MAGEE} imports from \href{https://cran.r-project.org/web/packages/Rcpp/index.html}{Rcpp}, \href{https://cran.r-project.org/web/packages/CompQuadForm/index.html}{CompQuadForm}, \href{https://cran.r-project.org/web/packages/foreach/index.html}{foreach}, \href{https://cran.r-project.org/web/views/HighPerformanceComputing.html}{parallel}, \href{https://cran.r-project.org/web/packages/Matrix/index.html}{Matrix}, methods, \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT}, and Bioconductor packages \href{http://bioconductor.org/packages/release/bioc/html/SeqArray.html}{SeqArray} and \href{http://bioconductor.org/packages/release/bioc/html/SeqVarTools.html}{SeqVarTools}. From \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT}, the \textbf{glmmkin} function is exported for availability to the users. The R package \href{https://cran.r-project.org/web/packages/doMC/index.html}{doMC} is required to run parallel computing in \textbf{glmm.gei} and \textbf{MAGEE} (\href{https://cran.r-project.org/web/packages/doMC/index.html}{doMC} is not available on Windows and these functions will switch to a single compute thread). 
+The following R packages are required before installing \textit{MAGEE}: \href{https://cran.r-project.org/web/packages/Rcpp/index.html}{Rcpp} and \href{https://cran.r-project.org/web/packages/RcppArmadillo/index.html}{RcppArmadillo} for R and C++ integration and \href{https://cran.r-project.org/web/packages/testthat/index.html}{testthat} to run code checks during development. Additionally, \textit{MAGEE} imports from \href{https://cran.r-project.org/web/packages/Rcpp/index.html}{Rcpp}, \href{https://cran.r-project.org/web/packages/CompQuadForm/index.html}{CompQuadForm}, \href{https://cran.r-project.org/web/packages/foreach/index.html}{foreach}, \href{https://cran.r-project.org/web/views/HighPerformanceComputing.html}{parallel}, \href{https://cran.r-project.org/web/packages/Matrix/index.html}{Matrix}, methods, \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT}, and Bioconductor packages \href{http://bioconductor.org/packages/release/bioc/html/SeqArray.html}{SeqArray} and \href{http://bioconductor.org/packages/release/bioc/html/SeqVarTools.html}{SeqVarTools}. The R package \href{https://cran.r-project.org/web/packages/doMC/index.html}{doMC} is required to run parallel computing in \textbf{glmm.gei} and \textbf{MAGEE} (\href{https://cran.r-project.org/web/packages/doMC/index.html}{doMC} is not available on Windows and these functions will switch to a single compute thread). 
 
 For optimal computational performance, it is recommended to use an R version configured with the Intel Math Kernel Library (or other fast BLAS/LAPACK libraries). See the instructions on building R with Intel MKL (\url{https://software.intel.com/en-us/articles/using-intel-mkl-with-r}).
 
@@ -139,6 +139,7 @@ There are 2 functions in \textit{MAGEE}: for single variant GEI and joint analys
 \subsection{Fitting GLMM}
 Both \textbf{MAGEE} and \textbf{glmm.gei} requires a "glmmkin" or "glmmkin.multi" class object that contains a fitted GLMM null model. The object can be obtained from the \textbf{glmmkin} function from the R package \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT}. For more examples and details about the \textbf{glmmkin} function, see the \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT} manual (\url{https://cran.r-project.org/web/packages/GMMAT/vignettes/GMMAT.pdf}). Below is an example of fitting a GLMM using the \textbf{glmmkin} function from \href{https://cran.r-project.org/web/packages/GMMAT/index.html}{GMMAT}:
 <<MAGEEglmmkingds, eval=FALSE, echo=TRUE>>=
+library(GMMAT)
 GRM.file <- system.file("extdata", "GRM.txt.bz2", package = "MAGEE")
 GRM <- as.matrix(read.table(GRM.file, check.names = FALSE))
 model0 <- glmmkin(disease ~ age + sex, data = pheno, kins = GRM,
@@ -150,18 +151,19 @@ Here is a simple example of single variant score tests using \textbf{glmm.gei}:
 \subsubsection{Score tests}
 <<MAGEEgeigds, eval=FALSE, echo=TRUE>>=
 infile <- system.file("extdata", "geno.gds", package = "MAGEE")
+gds_outfile <- tempfile()
 glmm.gei(model0, interaction='sex', geno.file = infile, 
-         outfile = "glmm.gei.gds.testoutfile.txt")
+         outfile = gds_outfile)
 @
 The first argument in \textbf{glmm.gei} is the returned glmmkin class object from fitting the null model. The argument "interaction" can be either a character vector indicating one or multiple environmental factors, or a numerical vector indicating the column numbers for the environmental factors in the covariate matrix. The argument "geno.file" is the name (and path if not in the current working directory) of the genotype file, and the argument "outfile" is the name of the output file. 
 
 Alternatively, if your genotype information is saved as a BGEN file "geno.bgen" and includes a BGEN sample file "geno.sample", you can use:
 <<MAGEEgeibgen, eval=FALSE, echo=TRUE>>=
 infile <- system.file("extdata", "geno.bgen", package = "MAGEE")
+bgen_outfile <- tempfile()
 samplefile <- system.file("extdata", "geno.sample", package = "MAGEE")
 glmm.gei(model0, interaction='sex', geno.file = infile, 
-         outfile = "glmm.gei.bgen.testoutfile.txt",
-         bgen.samplefile = samplefile)
+         outfile = bgen_outfile, bgen.samplefile = samplefile)
 @
 
 The function \textbf{glmm.gei} returns no value for GDS and BGEN genotype files.
@@ -204,7 +206,7 @@ STAT.INT     PVAL.INT     PVAL.JOINT
 1.2749996    0.2588309    0.4689541
 0.9141454    0.3390169    0.5239105
 \end{verbatim}
-The first 5 columns are extracted from the GDS file: SNP ("annotation/id"), CHR ("chromosome"), POS ("position"), reference and alternate alleles ("allele"). Results are included in 11 columns for the ALT allele: the sample size N (with non-missing genotypes), the genotype missing rate MISSRATE, the allele frequency (AF), the minimum and maximum allele frequency after stratification (AF.strata.min/AF.strata.max), the coefficient estimate for the marginal genetic effect (BETA.MAIN), the variance of the marginal genetic effect (SE.MAIN), the main effect score test \textit{P} value PVAL.MAIN, the gene-environment interaction score STAT.INT, the gene-environment interaction test \textit{P} value PVAL.INT, and the joint test \textit{P} value PVAL.JOINT.
+The first 5 columns are extracted from the GDS file: SNP ("annotation/id"), CHR ("chromosome"), POS ("position"), reference and alternate alleles ("allele"). Results are included in 11 columns for the ALT allele: the sample size N (with non-missing genotypes), the genotype missing rate MISSRATE, the allele frequency (AF), the minimum and maximum allele frequency after stratification (AF.strata.min/AF.strata.max), the coefficient estimate for the marginal genetic effect (BETA.MAIN), the SE of the marginal genetic effect (SE.MAIN), the marginal effect score test \textit{P} value PVAL.MAIN, the gene-environment interaction score STAT.INT, the gene-environment interaction test \textit{P} value PVAL.INT, and the joint test \textit{P} value PVAL.JOINT.
 
 If you use a BGEN genotype file "geno.bgen", here are the header and the first 5 rows of the example output "glmm.gei.bgen.testoutfile.txt" using the default settings from \textbf{glmm.gei}:
 \begin{verbatim}
@@ -229,7 +231,7 @@ PVAL.MAIN    STAT.INT     PVAL.INT     PVAL.JOINT
 0.624567     1.275000     0.258831     0.468954
 0.538287     0.914145     0.339017     0.523911
 \end{verbatim}
-The first 6 columns are copied from the BGEN file: the SNP, RSID, chromosome CHR, physical position POS, and the first and second alleles A1 and A2. Results are included in 11 columns for the second allele in the BGEN file: the sample size N (with non-missing genotypes), the genotype missing rate MISSRATE, the allele frequency (AF), the minimum and maximum allele frequency after stratification (AF.strata.min/AF.strata.max), the coefficient estimate for the marginal genetic effect (BETA.MAIN), the standard deviation of the marginal genetic effect (SE.MAIN), the main effect score test \textit{P} value PVAL.MAIN, the gene-environment interaction score STAT.INT, the gene-environment interaction test \textit{P} value PVAL.INT, and the joint test \textit{P} value PVAL.JOINT.
+The first 6 columns are copied from the BGEN file: the SNP, RSID, chromosome CHR, physical position POS, and the first and second alleles A1 and A2. Results are included in 11 columns for the second allele in the BGEN file: the sample size N (with non-missing genotypes), the genotype missing rate MISSRATE, the allele frequency (AF), the minimum and maximum allele frequency after stratification (AF.strata.min/AF.strata.max), the coefficient estimate for the marginal genetic effect (BETA.MAIN), the SE of the marginal genetic effect (SE.MAIN), the marginal effect score test \textit{P} value PVAL.MAIN, the gene-environment interaction score STAT.INT, the gene-environment interaction test \textit{P} value PVAL.INT, and the joint test \textit{P} value PVAL.JOINT.
 
 For both GDS and BGEN file formats, if the argument meta.output = TRUE, \textbf{glmm.gei} will output additional columns containing the coefficients and variance-covariance of the interaction terms.
 

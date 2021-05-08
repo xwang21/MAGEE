@@ -3,9 +3,10 @@ Type: Package
 Version: 1.0.0
 Date: 2021-05-01
 Title: Mixed Model Association Test for GEne-Environment Interaction
-Author: Xinyu Wang, Han Chen, Duy Pham
-Maintainer: Xinyu Wang <xinyu.wang@uth.tmc.edu>
-Description: Use a glmmkin class object from the null GLMM to perform variant set-based main effect tests, gene-environment interaction tests, and joint tests for association with genotypes in a GDS file (.gds) or BGEN file.
+Authors@R: c(person("Xinyu", "Wang", role = c("aut", "cre"), email = "xinyu.wang@uth.tmc.edu"),
+             person("Han", "Chen", role = "aut", email = "han.chen.2@uth.tmc.edu"),
+             person("Duy", "Pham", role = "aut", email = "duy.t.pham@uth.tmc.edu"))
+Description: Use a 'glmmkin' class object from the null generalized linear mixed-effect model (GLMM) to perform variant set-based main effect tests, gene-environment interaction tests, and joint tests for association, as proposed in Wang et al. (2020) <DOI:10.1002/gepi.22351>.
 License: GPL-3
 Copyright: See COPYRIGHTS for details.
 Imports: Rcpp, Matrix, parallel, MASS, SeqArray, SeqVarTools, foreach, GMMAT,

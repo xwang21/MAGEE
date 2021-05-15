@@ -378,7 +378,6 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           
         })
         
-        SeqArray::seqClose(gds)
         if (meta.output) {
           cov.header = matrix(paste(rep(paste0("Cov_Gx", interaction[1:ei]), each = ei), interaction[1:ei], sep = "_Gx"), ei, ei)
           diag(cov.header) <- paste0("VAR.BETA.Gx", interaction[1:ei])
@@ -399,6 +398,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
         write.table(out, outfile, quote=FALSE, row.names=FALSE, col.names=(ii == 1), sep="\t", append=(ii > 1), na=".")
         rm(out)
       }
+      SeqArray::seqClose(gds)
     }
     return(invisible(NULL))
   } else if (grepl("\\.bgen$", geno.file)) {

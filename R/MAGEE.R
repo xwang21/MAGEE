@@ -1313,9 +1313,11 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
       for(i in 1:n.groups) {
         tmp.idx <- group.idx.start[idx[i]]:group.idx.end[idx[i]]
         tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
+        print(tmp.group.info)
         SeqArray::seqSetFilter(gds, variant.id = tmp.group.info$variant.idx, verbose = FALSE)
         geno <- if(is.dosage) SeqVarTools::imputedDosage(gds, use.names = FALSE) else SeqVarTools::altDosage(gds, use.names = FALSE)
         miss <- colMeans(is.na(geno))
+        print(dim(geno))
         freq <- colMeans(geno, na.rm = TRUE)/2
         include <- (miss <= miss.cutoff & ((freq >= MAF.range[1] & freq <= MAF.range[2]) | (freq >= 1-MAF.range[2] & freq <= 1-MAF.range[1])))
         if(!is.null(strata)) { # E is not continuous
@@ -1330,6 +1332,7 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
         miss <- miss[include]
         freq <- freq[include]
         geno <- geno[, include, drop = FALSE]
+        print(dim(geno))
         if(!is.null(strata)) freq_strata <- freq_strata[, include, drop = FALSE]
         N <- nrow(geno) - colSums(is.na(geno))
         if(sum(tmp.group.info$flip) > 0) {
@@ -1375,8 +1378,11 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
             KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
             KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
           }
+          print("V: ")
+          print(V)
           V_i <- try(solve(V), silent = TRUE)
           if(class(V_i)[1] == "try-error") V_i <- MASS::ginv(V)
+          print("End V")
           KPG <- crossprod(K,PG)
           IV.U <- SK - tcrossprod(tcrossprod(KPG,V_i),t(U))
           IV.V <- KPK - tcrossprod(tcrossprod(KPG,V_i),KPG)
@@ -1511,6 +1517,7 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
       tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
       SeqArray::seqSetFilter(gds, variant.id = tmp.group.info$variant.idx, verbose = FALSE)
       geno <- if(is.dosage) SeqVarTools::imputedDosage(gds, use.names = FALSE) else SeqVarTools::altDosage(gds, use.names = FALSE)
+      print(dim(geno))
       miss <- colMeans(is.na(geno))
       freq <- colMeans(geno, na.rm = TRUE)/2
       include <- (miss <= miss.cutoff & ((freq >= MAF.range[1] & freq <= MAF.range[2]) | (freq >= 1-MAF.range[2] & freq <= 1-MAF.range[1])))
@@ -1526,6 +1533,7 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
       miss <- miss[include]
       freq <- freq[include]
       geno <- geno[, include, drop = FALSE]
+      print(dim(geno))
       if(!is.null(strata)) freq_strata <- freq_strata[, include, drop = FALSE]
       N <- nrow(geno) - colSums(is.na(geno))
       if(sum(tmp.group.info$flip) > 0) {
@@ -1571,8 +1579,11 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
           KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
           KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
         }
+        print("V:")
+        print(V)
         V_i <- try(solve(V), silent = TRUE)
         if(class(V_i)[1] == "try-error") V_i <- MASS::ginv(V)
+        print("End V")
         KPG <- crossprod(K,PG)
         IV.U <- SK - tcrossprod(tcrossprod(KPG,V_i),t(U))
         IV.V <- KPK - tcrossprod(tcrossprod(KPG,V_i),KPG)

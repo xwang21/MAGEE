@@ -1313,11 +1313,21 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
       for(i in 1:n.groups) {
         tmp.idx <- group.idx.start[idx[i]]:group.idx.end[idx[i]]
         tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
-        print(tmp.group.info)
+        if (i == 1 && b == 31) {
+          print(tmp.group.info)
+        }
         SeqArray::seqSetFilter(gds, variant.id = tmp.group.info$variant.idx, verbose = FALSE)
         geno <- if(is.dosage) SeqVarTools::imputedDosage(gds, use.names = FALSE) else SeqVarTools::altDosage(gds, use.names = FALSE)
         miss <- colMeans(is.na(geno))
-        print(dim(geno))
+        if (i == 1 && b == 31) {
+          print("Geno: ")
+          print(geno)
+          print(dim(geno))
+          print("Counts: ")
+          print(colSums(geno, na.rm = TRUE))
+          print("AF: ")
+          print(colMeans(geno, na.rm = TRUE)/2)
+        }
         freq <- colMeans(geno, na.rm = TRUE)/2
         include <- (miss <= miss.cutoff & ((freq >= MAF.range[1] & freq <= MAF.range[2]) | (freq >= 1-MAF.range[2] & freq <= 1-MAF.range[1])))
         if(!is.null(strata)) { # E is not continuous
@@ -1332,9 +1342,21 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
         miss <- miss[include]
         freq <- freq[include]
         geno <- geno[, include, drop = FALSE]
-        print(dim(geno))
+        if (i == 1 && b == 31) {
+          print("Geno after filer: ")
+          print(geno)
+          print(dim(geno))
+          print("Counts after filter: ")
+          print(colSums(geno, na.rm = TRUE))
+          print("AF after filter: ")
+          print(colMeans(geno, na.rm = TRUE)/2)
+        }
         if(!is.null(strata)) freq_strata <- freq_strata[, include, drop = FALSE]
         N <- nrow(geno) - colSums(is.na(geno))
+        if (i == 1 && b == 31) {
+          print("N: ")
+          print(N)
+        }
         if(sum(tmp.group.info$flip) > 0) {
           freq[tmp.group.info$flip==1] <- 1 - freq[tmp.group.info$flip==1]
           geno[, tmp.group.info$flip==1] <- 2 - geno[, tmp.group.info$flip==1]
@@ -1352,6 +1374,10 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
           geno <- cbind(geno, do.call(cbind, sapply(1:qi, function(xx) geno*E[,xx], simplify = FALSE), envir = environment()))
         }
         U <- as.vector(crossprod(geno, residuals))
+        if (i == 1 && b == 31) {
+          print("U: ")
+          print(U)
+        }
         if(class(null.obj) == "glmmkin.multi") {
           geno <- Diagonal(n = n.pheno) %x% geno
           if (IV | IF | JV | JF | JD) K <- Diagonal(n = n.pheno) %x% K
@@ -1361,6 +1387,10 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
         } else {
           GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
           PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
+        }
+        if (i == 1 && b == 31) {
+          print("PG: ")
+          print(PG)
         }
         V <- as.matrix(crossprod(geno, PG))
         if(MV | MF | JV | JF | JD) c1 <- rep(1:n.p,n.pheno)+rep((0:(n.pheno-1))*n.p*(1+qi), each=n.p) # index for GPG and row.index for GPC
@@ -1378,11 +1408,18 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
             KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
             KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
           }
-          print(paste0("V", "-", b,"-",i, ": "))
-          print(V)
+          if (i == 1 && b == 31) {
+            print(paste0("V", "-", b,"-",i, ": "))
+            print(V)
+          }
           V_i <- try(solve(V), silent = TRUE)
+          if (i == 1 && b == 31) {
+            print(paste0("End solve(V)"))
+          }
           if(class(V_i)[1] == "try-error") V_i <- MASS::ginv(V)
-          print(paste0("End V", "-", b,"-",i))
+          if (i == 1 && b == 31) {
+            print(paste0("End ginv(V) ", b,"-",i))
+          }
           KPG <- crossprod(K,PG)
           IV.U <- SK - tcrossprod(tcrossprod(KPG,V_i),t(U))
           IV.V <- KPK - tcrossprod(tcrossprod(KPG,V_i),KPG)
@@ -1587,8 +1624,13 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
         print("V:")
         print(V)
         V_i <- try(solve(V), silent = TRUE)
+        if (i == 1 & b == 31) {
+          print("Solve(V) successful")
+        }
         if(class(V_i)[1] == "try-error") V_i <- MASS::ginv(V)
-        print("End V")
+        if (i == 1 & b == 31){ 
+          print("End V")
+        }
         KPG <- crossprod(K,PG)
         IV.U <- SK - tcrossprod(tcrossprod(KPG,V_i),t(U))
         IV.V <- KPK - tcrossprod(tcrossprod(KPG,V_i),KPG)

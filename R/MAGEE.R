@@ -1378,7 +1378,7 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
             KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
             KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
           }
-          print("V", "-", b,"-",i, ": ", )
+          print("V", "-", b,"-",i, ": ")
           print(V)
           V_i <- try(solve(V), silent = TRUE)
           if(class(V_i)[1] == "try-error") V_i <- MASS::ginv(V)

@@ -1378,11 +1378,11 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
             KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
             KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
           }
-          print("V", "-", b,"-",i, ": ")
+          print(paste0("V", "-", b,"-",i, ": "))
           print(V)
           V_i <- try(solve(V), silent = TRUE)
           if(class(V_i)[1] == "try-error") V_i <- MASS::ginv(V)
-          print("End V", "-", b,"-",i)
+          print(paste0("End V", "-", b,"-",i))
           KPG <- crossprod(K,PG)
           IV.U <- SK - tcrossprod(tcrossprod(KPG,V_i),t(U))
           IV.V <- KPK - tcrossprod(tcrossprod(KPG,V_i),KPG)
@@ -1439,7 +1439,7 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
           else MF.p <- tryCatch(.quad_pval(U = MF.U, V = MF.V, method = method), error = function(e) { NA })
           MF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp, MF.p)), error = function(e) { MF.Bp })
         }
-        print("End MF | JF | JD - ", b,"-",i)
+        print(paste0("End MF | JF | JD - ", b,"-",i))
         if((JF | JD) && (qi != 0)) {
           MF.BU.adj <- sum(U.adj)
           MF.BV.adj <- sum(V.adj)
@@ -1451,7 +1451,7 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
           else MF.adj.p <- tryCatch(.quad_pval(U = MF.U.adj, V = MF.V.adj, method = method), error = function(e) { NA })
           MF.adj.pval <- tryCatch(fisher_pval(c(MF.Bp.adj, MF.adj.p)), error = function(e) { MF.Bp.adj })
         }
-        print("End JF | JD - ", b,"-",i)
+        print(paste0("End JF | JD - ", b,"-",i))
         if(IF | JF | JD) {
           IF.BU <- sum(IV.U)
           IF.BV <- sum(IV.V)
@@ -1463,14 +1463,14 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
           else IF.p <- tryCatch(.quad_pval(U = IF.U, V = IF.V, method = method), error = function(e) { NA })
           IF.pval[i] <- tryCatch(fisher_pval(c(IF.Bp, IF.p)), error = function(e) { IF.Bp })
         }
-        print("End IF | JF | JD - ", b,"-",i)
+        print(paste0("End IF | JF | JD - ", b,"-",i))
         if(JF && (qi == 0)) JF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp, MF.p, IF.Bp, IF.p)), error = function(e) { MF.Bp })
         if(JF && (qi != 0)) JF.pval[i] <- tryCatch(fisher_pval(c(MF.Bp.adj, MF.adj.p, IF.Bp, IF.p)), error = function(e) { MF.Bp.adj })
         if(JD && (qi == 0)) JD.pval[i] <- tryCatch(fisher_pval(c(MF.pval[i], IF.pval[i])), error = function(e) { MF.pval[i] })
         if(JD && (qi != 0)) JD.pval[i] <- tryCatch(fisher_pval(c(MF.adj.pval, IF.pval[i])), error = function(e) { MF.adj.pval })
         rm(geno)
         if(Garbage.Collection) gc()
-        print("End ", b,"-",i)
+        print(paste0("End ", b,"-",i))
       }
       SeqArray::seqClose(gds)
       if(!is.null(meta.file.prefix)) close(meta.file.cov.handle)

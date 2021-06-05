@@ -1313,13 +1313,13 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
       for(i in 1:n.groups) {
         tmp.idx <- group.idx.start[idx[i]]:group.idx.end[idx[i]]
         tmp.group.info <- group.info[tmp.idx, , drop = FALSE]
-        if (b == 1 && i == 31) {
+        if (tmp.group.info$group[1] == "ENSG00000087460") {
           print(tmp.group.info)
         }
         SeqArray::seqSetFilter(gds, variant.id = tmp.group.info$variant.idx, verbose = FALSE)
         geno <- if(is.dosage) SeqVarTools::imputedDosage(gds, use.names = FALSE) else SeqVarTools::altDosage(gds, use.names = FALSE)
         miss <- colMeans(is.na(geno))
-        if (b == 1 && i == 31) {
+        if (tmp.group.info$group[1] == "ENSG00000087460") {
           print("Geno: ")
           print(geno)
           print(dim(geno))
@@ -1342,7 +1342,7 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
         miss <- miss[include]
         freq <- freq[include]
         geno <- geno[, include, drop = FALSE]
-        if (b == 1 && i == 31) {
+        if (tmp.group.info$group[1] == "ENSG00000087460") {
           print("Geno after filer: ")
           print(geno)
           print(dim(geno))
@@ -1353,7 +1353,7 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
         }
         if(!is.null(strata)) freq_strata <- freq_strata[, include, drop = FALSE]
         N <- nrow(geno) - colSums(is.na(geno))
-        if (b == 1 && i == 31) {
+        if (tmp.group.info$group[1] == "ENSG00000087460") {
           print("N: ")
           print(N)
         }
@@ -1374,7 +1374,7 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
           geno <- cbind(geno, do.call(cbind, sapply(1:qi, function(xx) geno*E[,xx], simplify = FALSE), envir = environment()))
         }
         U <- as.vector(crossprod(geno, residuals))
-        if (b == 1 && i == 31) {
+        if (tmp.group.info$group[1] == "ENSG00000087460") {
           print("U: ")
           print(U)
         }
@@ -1388,7 +1388,7 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
           GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
           PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
         }
-        if (b == 1 && i == 31) {
+        if (tmp.group.info$group[1] == "ENSG00000087460") {
           print("PG: ")
           print(PG)
         }
@@ -1408,16 +1408,16 @@ MAGEE.lowmem <- function(MAGEE.prep.obj, meta.file.prefix = NULL, MAF.range = c(
             KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
             KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
           }
-          if (b == 1 && i == 31) {
+          if (tmp.group.info$group[1] == "ENSG00000087460") {
             print(paste0("V", "-", b,"-",i, ": "))
             print(V)
           }
           V_i <- try(solve(V), silent = TRUE)
-          if (b == 1 && i == 31) {
+          if (tmp.group.info$group[1] == "ENSG00000087460") {
             print(paste0("End solve(V)"))
           }
           if(class(V_i)[1] == "try-error") V_i <- MASS::ginv(V)
-          if (b == 1 && i == 31) {
+          if (tmp.group.info$group[1] == "ENSG00000087460") {
             print(paste0("End ginv(V) ", b,"-",i))
           }
           KPG <- crossprod(K,PG)

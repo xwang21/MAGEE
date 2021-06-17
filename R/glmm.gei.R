@@ -241,7 +241,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
               meta.header = c(paste0("BETA.", interaction[1:ei]), paste0("SE.BETA.", interaction[1:ei]))
             }
             
-            tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ei + ei + (ei * (ei-1) / 2), byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta,header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
+            tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ei + ei + (ei * (ei-1) / 2), byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
             out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
           }
           

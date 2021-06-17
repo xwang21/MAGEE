@@ -259,7 +259,6 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
         system(paste0("cat ", outfile, "_tmp.", b, " >> ", outfile))
         unlink(paste0(outfile, "_tmp.", b))
       }
-      SeqArray::seqClose(gds)
     } else { # use a single core
       variant.idx <- variant.idx.all
       rm(variant.idx.all)

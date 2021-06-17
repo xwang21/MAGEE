@@ -98,6 +98,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
         rm(sample.id)
         nbatch.flush <- (p-1) %/% 100000 + 1
         ii <- 0
+
         for(i in 1:nbatch.flush) {
           gc()
           tmp.variant.idx <- if(i == nbatch.flush) variant.idx[((i-1)*100000+1):p] else variant.idx[((i-1)*100000+1):(i*100000)]
@@ -123,13 +124,14 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           out$MISSRATE <- MISSRATE[include]
           out$AF <- AF[include]
           rm(alleles.list, include)
+  
           tmp.out <- lapply(1:((tmp.p-1) %/% nperbatch + 1), function(j) {
             tmp2.variant.idx <- if(j == (tmp.p-1) %/% nperbatch + 1) tmp.variant.idx[((j-1)*nperbatch+1):tmp.p] else tmp.variant.idx[((j-1)*nperbatch+1):(j*nperbatch)]
             SeqArray::seqSetFilter(gds, variant.id = tmp2.variant.idx, verbose = FALSE)
             
             geno <- SeqVarTools::altDosage(gds, use.names = FALSE)
             ng <- ncol(geno)
-            
+
             N <- nrow(geno) - colSums(is.na(geno))
             AF.strata.min <- AF.strata.max <- rep(NA, ncol(geno))
             if(!is.null(strata)) { # E is not continuous
@@ -153,7 +155,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
               PG <- crossprod(null.obj$P, geno)
             } else {
               GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
-              PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
+              PG <- crossprod(as.matrix(null.obj$Sigma_i), geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
             }
             
             GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1, 1) %x% diag(ng))
@@ -174,7 +176,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
               KPK <- crossprod(K,crossprod(null.obj$P,K))
             } else {
               KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
-              KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
+              KPK <- crossprod(K, crossprod(as.matrix(null.obj$Sigma_i), K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
             }
             KPK <- as.matrix(KPK) * (matrix(1, ncolE, ncolE) %x% diag(ng))
             suppressWarnings({
@@ -201,6 +203,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             }else {
               IV.V_i <- split(IV.V_i, split_mat %x% diag(ng))
             }
+
             if (meta.output) {
               return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN, 
                            diag(as.matrix(BETA.INT[1:ng,])), # Beta G;
@@ -226,12 +229,13 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             
           })
           
+         
           if (meta.output) {
-            interaction <- c("G", paste0("Gx", interaction))
-            cov.header = matrix(paste(rep(paste0("Cov_", interaction), each = ncolE), interaction, sep = "_"), ncolE, ncolE)
-            meta.header = c(paste0("BETA.", interaction), paste0("SE.BETA.", interaction), cov.header[lower.tri(cov.header)])
+            interaction2 <- c("G", paste0("Gx", interaction))
+            cov.header = matrix(paste(rep(paste0("Cov_", interaction2), each = ncolE), interaction2, sep = "_"), ncolE, ncolE)
+            meta.header = c(paste0("BETA.", interaction2), paste0("SE.BETA.", interaction2), cov.header[lower.tri(cov.header)])
             
-            tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ncolE + ncolE + (ncolE * (ncolE - 1) / 2), byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
+            tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ncolE + ncolE + (ncolE * (ncolE - 1) / 2), byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
             out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
           } else {
             if (ei != 1) {

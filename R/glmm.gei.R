@@ -124,7 +124,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           out$MISSRATE <- MISSRATE[include]
           out$AF <- AF[include]
           rm(alleles.list, include)
-  
+
           tmp.out <- lapply(1:((tmp.p-1) %/% nperbatch + 1), function(j) {
             tmp2.variant.idx <- if(j == (tmp.p-1) %/% nperbatch + 1) tmp.variant.idx[((j-1)*nperbatch+1):tmp.p] else tmp.variant.idx[((j-1)*nperbatch+1):(j*nperbatch)]
             SeqArray::seqSetFilter(gds, variant.id = tmp2.variant.idx, verbose = FALSE)
@@ -155,7 +155,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
               PG <- crossprod(null.obj$P, geno)
             } else {
               GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
-              PG <- crossprod(as.matrix(null.obj$Sigma_i), geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
+              PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
             }
             
             GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1, 1) %x% diag(ng))
@@ -176,7 +176,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
               KPK <- crossprod(K,crossprod(null.obj$P,K))
             } else {
               KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
-              KPK <- crossprod(K, crossprod(as.matrix(null.obj$Sigma_i), K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
+              KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
             }
             KPK <- as.matrix(KPK) * (matrix(1, ncolE, ncolE) %x% diag(ng))
             suppressWarnings({
@@ -330,7 +330,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             PG <- crossprod(null.obj$P, geno)
           } else {
             GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
-            PG <- crossprod(as.matrix(null.obj$Sigma_i), geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
+            PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
           }
           
           GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1, 1) %x% diag(ng))
@@ -351,7 +351,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             KPK <- crossprod(K,crossprod(null.obj$P,K))
           } else {
             KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
-            KPK <- crossprod(K, crossprod(as.matrix(null.obj$Sigma_i), K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
+            KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
           }
           KPK <- as.matrix(KPK) * (matrix(1, ncolE, ncolE) %x% diag(ng))
           suppressWarnings({

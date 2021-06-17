@@ -25,6 +25,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
   
   qi <- length(interaction.covariates)
   ei <- length(interaction)
+  ei1 <- ei+1
   if(class(interaction)=="character") {
     if (is.null(interaction.covariates)) {
       if (!all(interaction %in% colnames(null.obj$X))) {stop("there are interactions not in column name of covariate matrix.")}
@@ -32,7 +33,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
       E <- scale(E, scale = FALSE)
     } else {
       if (any(interaction.covariates %in% interaction)) {stop("there are interaction.covariates also specified as interaction.")}
-      interaction <- c(interaction.covariates, interaction)
+      interaction <- c(interaction, interaction.covariates)
       if (!all(interaction %in% colnames(null.obj$X))) {stop("there are interaction and interaction.covariates not in column name of covariate matrix.")}
       E <- as.matrix(null.obj$X[,interaction])
       E <- scale(E, scale = FALSE)
@@ -42,7 +43,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
       E <- as.matrix(null.obj$X[,interaction+1])
       E <- scale(E, scale = FALSE)
     } else {
-      interaction <- c(interaction.covariates, interaction)
+      interaction <- c(interaction, interaction.covariates)
       E <- as.matrix(null.obj$X[,interaction+1])
       E <- scale(E, scale = FALSE)
     }
@@ -73,6 +74,8 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
     E <- as.matrix(E[match.id, , drop = FALSE])
     strata <- apply(E, 1, paste, collapse = ":")
     strata <- if(length(unique(strata))>length(strata)/100) NULL else as.numeric(as.factor(strata))
+    E <- cbind(1, E)
+    ncolE <- ncol(E)
     if(!is.null(strata)) strata.list <- lapply(unique(strata), function(x) which(strata==x))
     if (class(geno.file)[1] != "SeqVarGDSClass") {
       SeqArray::seqClose(gds)
@@ -138,16 +141,12 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             }
             
             if(center) geno <- scale(geno, scale = FALSE)
-            
             miss.idx <- which(is.na(geno))
             if(length(miss.idx)>0) {
               geno[miss.idx] <- if(!center & missing.method == "impute2mean") colMeans(geno, na.rm = TRUE)[ceiling(miss.idx/nrow(geno))] else 0
             }
             
-            K <- do.call(cbind, sapply((1+qi):ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
-            if(!is.null(interaction.covariates)) {
-              geno <- cbind(geno, do.call(cbind, sapply(1:qi, function(xx) geno*E[,xx], simplify = FALSE), envir = environment()))
-            }
+            K <- do.call(cbind, sapply(1:ncolE, function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
             
             U <- as.vector(crossprod(geno, residuals))
             if(!is.null(null.obj$P)) {
@@ -157,24 +156,18 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
               PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
             }
             
-            
-            GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1+qi, 1+qi) %x% diag(ng))
+            GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1, 1) %x% diag(ng))
             GPG_i <- try(solve(GPG), silent = TRUE)
             if(class(GPG_i)[1] == "try-error") GPG_i <- MASS::ginv(GPG)
-            if(is.null(interaction.covariates)) {
-              V_i <- diag(GPG_i)
-            } else {
-              V <- diag(GPG)[1:ng]
-              V_i <- ifelse(V < .Machine$double.eps, 0, 1/V)
-            }
+            V_i <- diag(GPG_i)
             
-            V.MAIN.adj <- diag(GPG_i)[1:ng]
-            BETA.MAIN.adj <- as.vector(crossprod(GPG_i, U))[1:ng]
+            V.MAIN.adj <- diag(GPG_i)
+            BETA.MAIN.adj <- as.vector(crossprod(GPG_i, U))
             STAT.MAIN.adj <- ifelse(V.MAIN.adj > 0, BETA.MAIN.adj^2/V.MAIN.adj, NA)
             
-            BETA.MAIN <- V_i * U[1:ng]
-            SE.MAIN <- sqrt(V_i)
-            STAT.MAIN <- BETA.MAIN * U[1:ng]
+            BETA.MAIN <- V_i * U
+            SE.MAIN   <- sqrt(V_i)
+            STAT.MAIN <- BETA.MAIN * U
             PVAL.MAIN <- ifelse(V_i>0, pchisq(STAT.MAIN, df=1, lower.tail=FALSE), NA)
             
             if(!is.null(null.obj$P)) {
@@ -183,54 +176,75 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
               KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
               KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
             }
-            KPK <- as.matrix(KPK) * (matrix(1, ei, ei) %x% diag(ng))
-            KPG <- as.matrix(crossprod(K,PG)) * (matrix(1, ei, 1+qi) %x% diag(ng))
+            KPK <- as.matrix(KPK) * (matrix(1, ncolE, ncolE) %x% diag(ng))
+            suppressWarnings({
+              IV.V_i <- try(solve(KPK, silent = TRUE))
+              if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK[idx,idx])
+            })
             
-            if(!is.null(interaction.covariates)) {
-              IV.U <- (rep(1, ei) %x% diag(ng)) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(crossprod(GPG_i, U))))
-              IV.V_i <- try(solve(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i))), silent = TRUE)
-              if(class(IV.V_i)[1] == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
-              BETA.INT <- crossprod(IV.V_i, IV.U)
-              STAT.INT <- diag(crossprod(IV.U,  BETA.INT))
-              PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
-              PVAL.JOINT <- ifelse(is.na(STAT.MAIN.adj), NA, pchisq(STAT.MAIN.adj + STAT.INT, df=1+ei, lower.tail=FALSE))
-              
-            } else {
-              IV.U <- (rep(1, ei) %x% diag(ncol(geno))) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(BETA.MAIN)))
-              IV.V_i <- try(solve(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i))), silent = TRUE)
-              if(class(IV.V_i)[1] == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
-              BETA.INT <- crossprod(IV.V_i, IV.U)
-              STAT.INT <- diag(crossprod(IV.U, BETA.INT))
-              PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
-              PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.MAIN + STAT.INT, df=1+ei, lower.tail=FALSE))
+            
+            IV.U <- (rep(1, ncolE) %x% diag(ng)) * as.vector(crossprod(K,residuals))
+            BETA.INT <- crossprod(IV.V_i, IV.U)
+            
+            ng1   <- ng+1
+            ngei1 <- ng*ei1
+            STAT.INT   <- diag(crossprod(BETA.INT[ng1:ngei1,], solve(IV.V_i[ng1:ngei1, ng1:ngei1], BETA.INT[ng1:ngei1,])))
+            STAT.JOINT <- diag(crossprod(BETA.INT[1:ngei1,], solve(IV.V_i[1:ngei1, 1:ngei1], BETA.INT[1:ngei1,])))
+            
+            PVAL.INT   <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
+            PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.JOINT, df=1+ei, lower.tail=FALSE))
+            
+            
+            split_mat <- matrix(sapply(1:(ncolE*ncolE), function (x) 1:(ncolE*ncolE)), ncolE, ncolE)
+            if (ng > 1) {
+              IV.V_i <- split(IV.V_i, split_mat %x% diag(ng))[-1]
+            }else {
+              IV.V_i <- split(IV.V_i, split_mat %x% diag(ng))
             }
-            
-            
             if (meta.output) {
-              return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN[1:ng], SE.MAIN, 
-                           do.call(cbind, lapply(1:ng, function(x) {idx <- seq(x, ng*ei, ng); BETA.INT[idx,x]})),
-                           do.call(cbind, lapply(1:ng, function(x) {idx <- seq(x, ng*ei, ng); IV.V_i[idx,idx][1:(ei*ei)]})),
+              return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN, 
+                           diag(as.matrix(BETA.INT[1:ng,])), # Beta G;
+                           t(do.call(cbind, lapply(2:ncolE, function(x) {diag(as.matrix(BETA.INT[(((x-1)*ng)+1):(ng*x),]))}))), # Beta GxE and then Beta Covariates
+                           t(sqrt(do.call(cbind, lapply(seq(1,ncolE*ncolE, ncolE+1), function(x) {IV.V_i[[x]]})))),
+                           t(do.call(cbind, lapply(split_mat[lower.tri(split_mat)], function(x) {IV.V_i[[x]]}))),
                            PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
             } else {
-              return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN[1:ng], SE.MAIN,
-                           PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+              split_mat <- as.matrix(split_mat[2:(ei+1),2:(ei+1)])
+              if (length(split_mat) == 1) {
+                return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN,
+                             t(do.call(cbind, lapply(2:(ei+1), function(x) {diag(as.matrix(BETA.INT[(((x-1)*ng)+1):(ng*x),]))}))), # Beta GxE only
+                             t(sqrt(do.call(cbind,lapply(diag(split_mat), function(x) {IV.V_i[[x]]})))),   # SE Beta GxE only
+                             PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+              } else {
+                return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN,
+                             t(do.call(cbind, lapply(2:(ei+1), function(x) {diag(as.matrix(BETA.INT[(((x-1)*ng)+1):(ng*x),]))}))), # Beta GxE only
+                             t(sqrt(do.call(cbind,lapply(diag(split_mat), function(x) {IV.V_i[[x]]})))),   # SE Beta GxE only
+                             t(do.call(cbind, lapply(split_mat[lower.tri(split_mat)], function(x) {IV.V_i[[x]]}))),
+                             PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT)) 
+              }
             }
+            
           })
+          
           if (meta.output) {
-            cov.header = matrix(paste(rep(paste0("Cov_Gx", interaction[1:ei]), each = ei), interaction[1:ei], sep = "_Gx"), ei, ei)
-            diag(cov.header) <- paste0("VAR.BETA.Gx", interaction[1:ei])
-            ss.header = c(paste0("BETA.Gx", interaction[1:ei]), cov.header)
-            tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ei + ei*ei, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", ss.header, "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
-            if (ei != 1) {
-              ss.header = c(ss.header[1:ei], diag(cov.header), cov.header[lower.tri(cov.header)])
-            }
-            out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", ss.header, "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
+            interaction <- c("G", paste0("Gx", interaction))
+            cov.header = matrix(paste(rep(paste0("Cov_", interaction), each = ncolE), interaction, sep = "_"), ncolE, ncolE)
+            meta.header = c(paste0("BETA.", interaction), paste0("SE.BETA.", interaction), cov.header[lower.tri(cov.header)])
+            
+            tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ncolE + ncolE + (ncolE * (ncolE - 1) / 2), byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
+            out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
           } else {
-            tmp.out <- matrix(unlist(tmp.out), ncol = 9, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
-            out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
+            if (ei != 1) {
+              cov.header = matrix(paste(rep(paste0("Cov_", interaction[1:ei]), each = ei), interaction, sep = "_"), ei, ei)
+              meta.header = c(paste0("BETA.", interaction[1:ei]), paste0("SE.BETA.", interaction[1:ei]), cov.header[lower.tri(cov.header)])
+            } else {
+              meta.header = c(paste0("BETA.", interaction[1:ei]), paste0("SE.BETA.", interaction[1:ei]))
+            }
+            
+            tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ei + ei + (ei * (ei-1) / 2), byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta,header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
+            out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
           }
           
-          names(out)[6] <- "N"
           rm(tmp.out)
           if(b == 1) {
             write.table(out, outfile, quote=FALSE, row.names=FALSE, col.names=(ii == 1), sep="\t", append=(ii > 1), na=".")
@@ -245,6 +259,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
         system(paste0("cat ", outfile, "_tmp.", b, " >> ", outfile))
         unlink(paste0(outfile, "_tmp.", b))
       }
+      SeqArray::seqClose(gds)
     } else { # use a single core
       variant.idx <- variant.idx.all
       rm(variant.idx.all)
@@ -290,7 +305,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           ng <- ncol(geno)
           
           N <- nrow(geno) - colSums(is.na(geno))
-          AF.strata.min <- AF.strata.max <- rep(NA, ncol(geno))
+          AF.strata.min <- AF.strata.max <- rep(NA, ng)
           if(!is.null(strata)) { # E is not continuous
             #freq_strata <- apply(geno,2,function(x) range(tapply(x,strata,mean,na.rm=TRUE)/2))
             freq.tmp <- sapply(strata.list, function(x) colMeans(geno[x, , drop = FALSE], na.rm = TRUE)/2)
@@ -305,95 +320,105 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             geno[miss.idx] <- if(!center & missing.method == "impute2mean") colMeans(geno, na.rm = TRUE)[ceiling(miss.idx/nrow(geno))] else 0
           }
           
-          K <- do.call(cbind, sapply((1+qi):ncol(E), function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
-          if(!is.null(interaction.covariates)) {
-            geno <- cbind(geno, do.call(cbind, sapply(1:qi, function(xx) geno*E[,xx], simplify = FALSE), envir = environment()))
-          }
+          K <- do.call(cbind, sapply(1:ncolE, function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
           
           U <- as.vector(crossprod(geno, residuals))
           if(!is.null(null.obj$P)) {
             PG <- crossprod(null.obj$P, geno)
           } else {
             GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
-            PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
+            PG <- crossprod(as.matrix(null.obj$Sigma_i), geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
           }
           
-          GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1+qi, 1+qi) %x% diag(ng))
+          GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1, 1) %x% diag(ng))
           GPG_i <- try(solve(GPG), silent = TRUE)
           if(class(GPG_i)[1] == "try-error") GPG_i <- MASS::ginv(GPG)
-          if(is.null(interaction.covariates)) {
-            V_i <- diag(GPG_i)
-          } else {
-            V <- diag(GPG)[1:ng]
-            V_i <- ifelse(V < .Machine$double.eps, 0, 1/V)
-          }
-          
-          V.MAIN.adj <- diag(GPG_i)[1:ng]
-          BETA.MAIN.adj <- as.vector(crossprod(GPG_i, U))[1:ng]
+          V_i <- diag(GPG_i)
+
+          V.MAIN.adj <- diag(GPG_i)
+          BETA.MAIN.adj <- as.vector(crossprod(GPG_i, U))
           STAT.MAIN.adj <- ifelse(V.MAIN.adj > 0, BETA.MAIN.adj^2/V.MAIN.adj, NA)
           
-          BETA.MAIN <- V_i * U[1:ng]
-          SE.MAIN <- sqrt(V_i)
-          STAT.MAIN <- BETA.MAIN * U[1:ng]
+          BETA.MAIN <- V_i * U
+          SE.MAIN   <- sqrt(V_i)
+          STAT.MAIN <- BETA.MAIN * U
           PVAL.MAIN <- ifelse(V_i>0, pchisq(STAT.MAIN, df=1, lower.tail=FALSE), NA)
           
           if(!is.null(null.obj$P)) {
             KPK <- crossprod(K,crossprod(null.obj$P,K))
           } else {
             KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
-            KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
+            KPK <- crossprod(K, crossprod(as.matrix(null.obj$Sigma_i), K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
           }
-          KPK <- as.matrix(KPK) * (matrix(1, ei, ei) %x% diag(ng))
-          KPG <- as.matrix(crossprod(K,PG)) * (matrix(1, ei, 1+qi) %x% diag(ng))
+          KPK <- as.matrix(KPK) * (matrix(1, ncolE, ncolE) %x% diag(ng))
+          suppressWarnings({
+            IV.V_i <- try(solve(KPK, silent = TRUE))
+            if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK[idx,idx])
+          })
           
-          if(!is.null(interaction.covariates)) {
-            IV.U <- (rep(1, ei) %x% diag(ng)) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(crossprod(GPG_i, U))))
-            IV.V_i <- try(solve(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i))), silent = TRUE)
-            if(class(IV.V_i)[1] == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
-            BETA.INT <- crossprod(IV.V_i, IV.U)
-            STAT.INT <- diag(crossprod(IV.U,  BETA.INT))
-            PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
-            PVAL.JOINT <- ifelse(is.na(STAT.MAIN.adj), NA, pchisq(STAT.MAIN.adj + STAT.INT, df=1+ei, lower.tail=FALSE))
-            
-          } else {
-            IV.U <- (rep(1, ei) %x% diag(ncol(geno))) * as.vector(crossprod(K,residuals)-tcrossprod(KPG, t(BETA.MAIN)))
-            IV.V_i <- try(solve(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i))), silent = TRUE)
-            if(class(IV.V_i)[1] == "try-error") IV.V_i <- MASS::ginv(KPK - tcrossprod(KPG,tcrossprod(KPG, GPG_i)))
-            BETA.INT <- crossprod(IV.V_i, IV.U)
-            STAT.INT <- diag(crossprod(IV.U, BETA.INT))
-            PVAL.INT <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
-            PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.MAIN + STAT.INT, df=1+ei, lower.tail=FALSE))
+          
+          IV.U <- (rep(1, ncolE) %x% diag(ng)) * as.vector(crossprod(K,residuals))
+          BETA.INT <- crossprod(IV.V_i, IV.U)
+          
+          ng1   <- ng+1
+          ngei1 <- ng*ei1
+          STAT.INT   <- diag(crossprod(BETA.INT[ng1:ngei1,], solve(IV.V_i[ng1:ngei1, ng1:ngei1], BETA.INT[ng1:ngei1,])))
+          STAT.JOINT <- diag(crossprod(BETA.INT[1:ngei1,], solve(IV.V_i[1:ngei1, 1:ngei1], BETA.INT[1:ngei1,])))
+          
+          PVAL.INT   <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
+          PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.JOINT, df=1+ei, lower.tail=FALSE))
+          
+          
+          split_mat <- matrix(sapply(1:(ncolE*ncolE), function (x) 1:(ncolE*ncolE)), ncolE, ncolE)
+          if (ng > 1) {
+            IV.V_i <- split(IV.V_i, split_mat %x% diag(ng))[-1]
+          }else {
+            IV.V_i <- split(IV.V_i, split_mat %x% diag(ng))
           }
-          
-          
           if (meta.output) {
-            return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN[1:ng], SE.MAIN, 
-                         do.call(cbind, lapply(1:ng, function(x) {idx <- seq(x, ng*ei, ng); BETA.INT[idx,x]})),
-                         do.call(cbind, lapply(1:ng, function(x) {idx <- seq(x, ng*ei, ng); IV.V_i[idx,idx][1:(ei*ei)]})),
+            return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN, 
+                         diag(as.matrix(BETA.INT[1:ng,])), # Beta G;
+                         t(do.call(cbind, lapply(2:ncolE, function(x) {diag(as.matrix(BETA.INT[(((x-1)*ng)+1):(ng*x),]))}))), # Beta GxE and then Beta Covariates
+                         t(sqrt(do.call(cbind, lapply(seq(1,ncolE*ncolE, ncolE+1), function(x) {IV.V_i[[x]]})))),
+                         t(do.call(cbind, lapply(split_mat[lower.tri(split_mat)], function(x) {IV.V_i[[x]]}))),
                          PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
           } else {
-            return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN[1:ng], SE.MAIN,
-                         PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+            split_mat <- as.matrix(split_mat[2:(ei+1),2:(ei+1)])
+            if (length(split_mat) == 1) {
+              return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN,
+                           t(do.call(cbind, lapply(2:(ei+1), function(x) {diag(as.matrix(BETA.INT[(((x-1)*ng)+1):(ng*x),]))}))), # Beta GxE only
+                           t(sqrt(do.call(cbind,lapply(diag(split_mat), function(x) {IV.V_i[[x]]})))),   # SE Beta GxE only
+                           PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+            } else {
+              return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN,
+                           t(do.call(cbind, lapply(2:(ei+1), function(x) {diag(as.matrix(BETA.INT[(((x-1)*ng)+1):(ng*x),]))}))), # Beta GxE only
+                           t(sqrt(do.call(cbind,lapply(diag(split_mat), function(x) {IV.V_i[[x]]})))),   # SE Beta GxE only
+                           t(do.call(cbind, lapply(split_mat[lower.tri(split_mat)], function(x) {IV.V_i[[x]]}))),
+                           PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT)) 
+            }
           }
           
         })
         
         if (meta.output) {
-          cov.header = matrix(paste(rep(paste0("Cov_Gx", interaction[1:ei]), each = ei), interaction[1:ei], sep = "_Gx"), ei, ei)
-          diag(cov.header) <- paste0("VAR.BETA.Gx", interaction[1:ei])
-          ss.header = c(paste0("BETA.Gx", interaction[1:ei]), cov.header)
+          interaction2 <- c("G", paste0("Gx", interaction))
+          cov.header = matrix(paste(rep(paste0("Cov_", interaction2), each = ncolE), interaction2, sep = "_"), ncolE, ncolE)
+          meta.header = c(paste0("BETA.", interaction2), paste0("SE.BETA.", interaction2), cov.header[lower.tri(cov.header)])
           
-          tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ei + ei*ei, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", ss.header, "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
-          if (ei != 1) {
-            ss.header = c(ss.header[1:ei], diag(cov.header), cov.header[lower.tri(cov.header)])
-          }
-          out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", ss.header, "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
+          tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ncolE + ncolE + (ncolE * (ncolE - 1) / 2), byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
+          out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
         } else {
-          tmp.out <- matrix(unlist(tmp.out), ncol = 9, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
-          out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MAIN", "SE.MAIN", "PVAL.MAIN", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
+          if (ei != 1) {
+            cov.header = matrix(paste(rep(paste0("Cov_", interaction[1:ei]), each = ei), interaction, sep = "_"), ei, ei)
+            meta.header = c(paste0("BETA.", interaction[1:ei]), paste0("SE.BETA.", interaction[1:ei]), cov.header[lower.tri(cov.header)])
+          } else {
+            meta.header = c(paste0("BETA.", interaction[1:ei]), paste0("SE.BETA.", interaction[1:ei]))
+          }
+          
+          tmp.out <- matrix(unlist(tmp.out), ncol = 9 + ei + ei + (ei * (ei-1) / 2), byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
+          out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
         }
         
-        names(out)[6] <- "N"
         rm(tmp.out)
         write.table(out, outfile, quote=FALSE, row.names=FALSE, col.names=(ii == 1), sep="\t", append=(ii > 1), na=".")
         rm(out)

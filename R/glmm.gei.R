@@ -197,7 +197,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.JOINT, df=1+ei, lower.tail=FALSE))
             
             
-            split_mat <- matrix(sapply(1:(ncolE*ncolE), function (x) 1:(ncolE*ncolE)), ncolE, ncolE)
+            split_mat <- matrix(1:(ncolE*ncolE), ncolE, ncolE)
             if (ng > 1) {
               IV.V_i <- split(IV.V_i, split_mat %x% diag(ng))[-1]
             }else {
@@ -372,7 +372,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.JOINT, df=1+ei, lower.tail=FALSE))
           
           
-          split_mat <- matrix(sapply(1:(ncolE*ncolE), function (x) 1:(ncolE*ncolE)), ncolE, ncolE)
+          split_mat <- matrix(1:(ncolE*ncolE), ncolE, ncolE)
           if (ng > 1) {
             IV.V_i <- split(IV.V_i, split_mat %x% diag(ng))[-1]
           }else {

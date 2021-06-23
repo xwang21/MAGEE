@@ -163,10 +163,6 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             if(class(GPG_i)[1] == "try-error") GPG_i <- MASS::ginv(GPG)
             V_i <- diag(GPG_i)
             
-            V.MAIN.adj <- diag(GPG_i)
-            BETA.MAIN.adj <- as.vector(crossprod(GPG_i, U))
-            STAT.MAIN.adj <- ifelse(V.MAIN.adj > 0, BETA.MAIN.adj^2/V.MAIN.adj, NA)
-            
             BETA.MAIN <- V_i * U
             SE.MAIN   <- sqrt(V_i)
             STAT.MAIN <- BETA.MAIN * U
@@ -179,10 +175,9 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
               KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
             }
             KPK <- as.matrix(KPK) * (matrix(1, ncolE, ncolE) %x% diag(ng))
-            suppressWarnings({
-              IV.V_i <- try(solve(KPK, silent = TRUE))
-              if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK[idx,idx])
-            })
+            
+            IV.V_i <- try(solve(KPK), silent = TRUE)
+            if(class(IV.V_i)[1] == "try-error") IV.V_i <- MASS::ginv(KPK)
             
             
             IV.U <- (rep(1, ncolE) %x% diag(ng)) * as.vector(crossprod(K,residuals))
@@ -337,10 +332,6 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           GPG_i <- try(solve(GPG), silent = TRUE)
           if(class(GPG_i)[1] == "try-error") GPG_i <- MASS::ginv(GPG)
           V_i <- diag(GPG_i)
-
-          V.MAIN.adj <- diag(GPG_i)
-          BETA.MAIN.adj <- as.vector(crossprod(GPG_i, U))
-          STAT.MAIN.adj <- ifelse(V.MAIN.adj > 0, BETA.MAIN.adj^2/V.MAIN.adj, NA)
           
           BETA.MAIN <- V_i * U
           SE.MAIN   <- sqrt(V_i)
@@ -354,11 +345,9 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
           }
           KPK <- as.matrix(KPK) * (matrix(1, ncolE, ncolE) %x% diag(ng))
-          suppressWarnings({
-            IV.V_i <- try(solve(KPK, silent = TRUE))
-            if(class(IV.V_i) == "try-error") IV.V_i <- MASS::ginv(KPK[idx,idx])
-          })
-          
+       
+          IV.V_i <- try(solve(KPK), silent = TRUE)
+          if(class(IV.V_i)[1] == "try-error") IV.V_i <- MASS::ginv(KPK)
           
           IV.U <- (rep(1, ncolE) %x% diag(ng)) * as.vector(crossprod(K,residuals))
           BETA.INT <- crossprod(IV.V_i, IV.U)

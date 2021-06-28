@@ -185,9 +185,16 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             
             ng1   <- ng+1
             ngei1 <- ng*ei1
-            STAT.INT   <- diag(crossprod(BETA.INT[ng1:ngei1,], solve(IV.V_i[ng1:ngei1, ng1:ngei1], BETA.INT[ng1:ngei1,])))
-            STAT.JOINT <- diag(crossprod(BETA.INT[1:ngei1,], solve(IV.V_i[1:ngei1, 1:ngei1], BETA.INT[1:ngei1,])))
+            IV.E_i <- try(solve(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
+            if(class(IV.E_i)[1] == "try-error") IV.E_i <- MASS::ginv(IV.V_i[ng1:ngei1, ng1:ngei1])
+            STAT.INT   <- diag(crossprod(BETA.INT[ng1:ngei1,], crossprod(IV.E_i, BETA.INT[ng1:ngei1,])))
             
+            IV.GE_i <- try(solve(IV.V_iIV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
+            if(class(IV.GE_i)[1] == "try-error") IV.GE_i <- MASS::ginv(IV.V_i[1:ngei1, 1:ngei1])
+            STAT.JOINT <- diag(crossprod(BETA.INT[1:ngei1,], crossprod(IV.GE_i, BETA.INT[1:ngei1,])))
+            
+            PVAL.INT   <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
+            PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.JOINT, df=1+ei, lower.tail=FALSE))
             PVAL.INT   <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
             PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.JOINT, df=1+ei, lower.tail=FALSE))
             
@@ -325,7 +332,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             PG <- crossprod(null.obj$P, geno)
           } else {
             GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
-            PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
+            PG <- crossprod(as.matrix(null.obj$Sigma_i), geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
           }
           
           GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1, 1) %x% diag(ng))
@@ -342,7 +349,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             KPK <- crossprod(K,crossprod(null.obj$P,K))
           } else {
             KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
-            KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
+            KPK <- crossprod(K, crossprod(as.matrix(null.obj$Sigma_i), K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
           }
           KPK <- as.matrix(KPK) * (matrix(1, ncolE, ncolE) %x% diag(ng))
        
@@ -354,8 +361,14 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           
           ng1   <- ng+1
           ngei1 <- ng*ei1
-          STAT.INT   <- diag(crossprod(BETA.INT[ng1:ngei1,], solve(IV.V_i[ng1:ngei1, ng1:ngei1], BETA.INT[ng1:ngei1,])))
-          STAT.JOINT <- diag(crossprod(BETA.INT[1:ngei1,], solve(IV.V_i[1:ngei1, 1:ngei1], BETA.INT[1:ngei1,])))
+          
+          IV.E_i <- try(solve(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
+          if(class(IV.E_i)[1] == "try-error") IV.E_i <- MASS::ginv(IV.V_i[ng1:ngei1, ng1:ngei1])
+          STAT.INT   <- diag(crossprod(BETA.INT[ng1:ngei1,], crossprod(IV.E_i, BETA.INT[ng1:ngei1,])))
+          
+          IV.GE_i <- try(solve(IV.V_iIV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
+          if(class(IV.GE_i)[1] == "try-error") IV.GE_i <- MASS::ginv(IV.V_i[1:ngei1, 1:ngei1])
+          STAT.JOINT <- diag(crossprod(BETA.INT[1:ngei1,], crossprod(IV.GE_i, BETA.INT[1:ngei1,])))
           
           PVAL.INT   <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
           PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.JOINT, df=1+ei, lower.tail=FALSE))

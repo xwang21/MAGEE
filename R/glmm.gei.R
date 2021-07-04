@@ -383,8 +383,8 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           KPK <- as.matrix(KPK) * (matrix(1, ncolE, ncolE) %x% diag(ng))
        
           IV.V_i <- try(solve(KPK), silent = TRUE)
-          if(class(IV.E_i)[1] == "try-error") IV.V_i <- try(MASS::ginv(KPK), silent = TRUE)
-          if (class(IV.E_i)[1] == "try-error") {
+          if(class(IV.V_i)[1] == "try-error") IV.V_i <- try(MASS::ginv(KPK), silent = TRUE)
+          if (class(IV.V_i)[1] == "try-error") {
             return(NULL)
           }
           
@@ -401,7 +401,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           }
           STAT.INT   <- diag(crossprod(BETA.INT[ng1:ngei1,], crossprod(IV.E_i, BETA.INT[ng1:ngei1,])))
           
-          IV.GE_i <- try(solve(IV.V_iIV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
+          IV.GE_i <- try(solve(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
           if(class(IV.GE_i)[1] == "try-error") IV.GE_i <- try(MASS::ginv(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
           if(class(IV.GE_i)[1] == "try-error") {
             return(NULL)

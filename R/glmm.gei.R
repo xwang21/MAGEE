@@ -260,6 +260,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
               IV.V_i <- split(IV.V_i, split_mat %x% diag(ng))
             }
 
+            tmp_idx <<- tmp_idx + 1
             if (meta.output) {
               return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN, 
                            diag(as.matrix(BETA.INT[1:ng,])), # Beta G;
@@ -471,7 +472,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           }else {
             IV.V_i <- split(IV.V_i, split_mat %x% diag(ng))
           }
-          tmp_idx <- tmp_id + 1
+          tmp_idx <<- tmp_idx + 1
           if (meta.output) {
             return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN, 
                          diag(as.matrix(BETA.INT[1:ng,])), # Beta G;
@@ -496,7 +497,6 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           }
           
         })
-        print("done")
         nn_idx <- !sapply(tmp.out,is.null)
         if (any(nn_idx)) {
           tmp.out <- matrix(unlist(tmp.out), ncol = totalCol, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))

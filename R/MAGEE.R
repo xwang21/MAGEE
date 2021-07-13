@@ -18,6 +18,7 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
   JD <- "JD" %in% tests
   if(!class(interaction) %in% c("integer", "numeric", "character")) stop("Error: \"interaction\" should be an integer, numeric, or character vector.")
   if(any(duplicated(null.obj$id_include))) {
+    stop("Error: longitudinal data is not supoorted in the current version!")
     J <- Matrix(sapply(unique(null.obj$id_include), function(x) 1*(null.obj$id_include==x)), sparse = TRUE)
     residuals <- as.numeric(as.matrix(crossprod(J, null.obj$scaled.residuals)))
     if(!is.null(null.obj$P)) null.obj$P <- as.matrix(crossprod(J, crossprod(null.obj$P, J)))
@@ -108,10 +109,7 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
       if(any(!is.na(variant.idx1) & !is.na(variant.idx2))) {
         tmp.dups <- which(!is.na(variant.idx1) & !is.na(variant.idx2))
         cat("The following ambiguous variants were found:\n")
-        cat("chr:", chr[tmp.dups], "\n")
-        cat("pos:", pos[tmp.dups], "\n")
-        cat("ref:", ref[tmp.dups], "\n")
-        cat("alt:", alt[tmp.dups], "\n")
+        cat("variant:", variant.id1[tmp.dups], "\n") 
         cat("Warning: both variants with alleles ref/alt and alt/ref were present at the same position and coding should be double checked!\nFor these variants, only those with alleles ref/alt were used in the analysis...\n")
         variant.idx2[tmp.dups] <- NA
         rm(tmp.dups)
@@ -161,12 +159,13 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
         if(JD) JD.pval <- rep(NA, n.groups)
         if(!is.null(meta.file.prefix)) {
           if(class(null.obj) == "glmmkin.multi") stop("Error: meta-analysis not supported yet for multiple phenotypes.")
+          if(!is.null(interaction.covariates)) stop("Error: meta-analysis not supported yet for interaction.covariates.")
           if(.Platform$endian!="little") stop("Error: platform must be little endian.")
           meta.file.score <- paste0(meta.file.prefix, ".score.", b)
           meta.file.cov <- paste0(meta.file.prefix, ".cov.", b)
-          write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "G.SCORE", paste("K.SCORE.", 1:n.E, sep=""))), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE)
+          write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "G.SCORE", paste("K.SCORE.", 1:ei, sep=""))), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE)
           meta.file.cov.handle <- file(meta.file.cov, "wb")
-          writeBin(n.E, meta.file.cov.handle, size = 4)
+          writeBin(as.numeric(ei), meta.file.cov.handle, size = 4)
           writeBin(interaction, meta.file.cov.handle, size = 4)
         }
         for(i in 1:n.groups) {
@@ -241,8 +240,13 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
             IV.V <- KPK - tcrossprod(tcrossprod(KPG,V_i),KPG)
           }
           if(!is.null(meta.file.prefix)) {
+            score <- cbind(tmp.group.info[,c("group","chr","pos","ref","alt")], N, miss, freq, U, matrix(crossprod(K,residuals), nrow = n.p, ncol = ei))
+            # odr <- order(as.numeric(row.names(tmp.group.info)))
+            # score <- score[odr, ]
+            # odr <- rep(odr, (1+ei))+rep(0:ei*length(odr), each=length(odr))
+            # COV <-rbind(cbind(V, t(KPG)), cbind(KPG, KPK))[odr, odr] 
             COV <-rbind(cbind(V, t(KPG)), cbind(KPG, KPK))
-            write.table(cbind(tmp.group.info[,c("group","chr","pos","ref","alt")], N, miss, freq, U, matrix(crossprod(K,residuals), nrow = n.p, ncol = n.E)), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE, append = TRUE)
+            write.table(score, meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE, append = TRUE)
             writeBin(COV[lower.tri(COV, diag = TRUE)], meta.file.cov.handle, size = 4)
           }
           if(use.minor.allele) {
@@ -357,12 +361,13 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
       if(JD) JD.pval <- rep(NA, n.groups)
       if(!is.null(meta.file.prefix)) {
         if(class(null.obj) == "glmmkin.multi") stop("Error: meta-analysis not supported yet for multiple phenotypes.")
+        if(!is.null(interaction.covariates)) stop("Error: meta-analysis not supported yet for interaction.covariates.")
         if(.Platform$endian!="little") stop("Error: platform must be little endian.")
         meta.file.score <- paste0(meta.file.prefix, ".score.1")
         meta.file.cov <- paste0(meta.file.prefix, ".cov.1")
-        write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "G.SCORE", paste("K.SCORE.", 1:n.E, sep=""))), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE)
+        write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "G.SCORE", paste("K.SCORE.", 1:ei, sep=""))), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE)
         meta.file.cov.handle <- file(meta.file.cov, "wb")
-        writeBin(n.E, meta.file.cov.handle, size = 4)
+        writeBin(as.numeric(ei), meta.file.cov.handle, size = 4)
         writeBin(interaction, meta.file.cov.handle, size = 4)
       }
       for(i in 1:n.groups) {
@@ -437,9 +442,14 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
           IV.V <- KPK - tcrossprod(tcrossprod(KPG,V_i),KPG)
         }
         if(!is.null(meta.file.prefix)) {
-          COV <-rbind(cbind(V, t(KPG)), cbind(KPG, KPK))
-          write.table(cbind(tmp.group.info[,c("group","chr","pos","ref","alt")], N, miss, freq, U, matrix(crossprod(K,residuals), nrow = n.p, ncol = n.E)), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE, append = TRUE)
-          writeBin(COV[lower.tri(COV, diag = TRUE)], meta.file.cov.handle, size = 4)
+            score <- cbind(tmp.group.info[,c("group","chr","pos","ref","alt")], N, miss, freq, U, matrix(crossprod(K,residuals), nrow = n.p, ncol = ei))
+            # odr <- order(as.numeric(row.names(tmp.group.info)))
+            # score <- score[odr, ]
+            # odr <- rep(odr, (1+ei))+rep(0:ei*length(odr), each=length(odr))
+            # COV <-rbind(cbind(V, t(KPG)), cbind(KPG, KPK))[odr, odr] 
+            COV <-rbind(cbind(V, t(KPG)), cbind(KPG, KPK))
+            write.table(score, meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE, append = TRUE)
+            writeBin(COV[lower.tri(COV, diag = TRUE)], meta.file.cov.handle, size = 4)
         }
         if(use.minor.allele) {
           tmp.group.info$weight[freq > 0.5] <- -tmp.group.info$weight[freq > 0.5]
@@ -590,10 +600,7 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
       if(any(!is.na(variant.idx1) & !is.na(variant.idx2))) {
         tmp.dups <- which(!is.na(variant.idx1) & !is.na(variant.idx2))
         cat("The following ambiguous variants were found:\n")
-        cat("chr:", chr[tmp.dups], "\n")
-        cat("pos:", pos[tmp.dups], "\n")
-        cat("ref:", ref[tmp.dups], "\n")
-        cat("alt:", alt[tmp.dups], "\n")
+        cat("variant:", variant.id1[tmp.dups], "\n")
         cat("Warning: both variants with alleles ref/alt and alt/ref were present at the same position and coding should be double checked!\nFor these variants, only those with alleles ref/alt were used in the analysis...\n")
         variant.idx2[tmp.dups] <- NA
         rm(tmp.dups)
@@ -644,12 +651,13 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
           if(JD) JD.pval <- rep(NA, n.groups)
           if(!is.null(meta.file.prefix)) {
             if(class(null.obj) == "glmmkin.multi") stop("Error: meta-analysis not supported yet for multiple phenotypes.")
+            if(!is.null(interaction.covariates)) stop("Error: meta-analysis not supported yet for interaction.covariates.")
             if(.Platform$endian!="little") stop("Error: platform must be little endian.")
             meta.file.score <- paste0(meta.file.prefix, ".score.", b)
             meta.file.cov <- paste0(meta.file.prefix, ".cov.", b)
-            write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "G.SCORE", paste("K.SCORE.", 1:n.E, sep=""))), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE)
+            write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "G.SCORE", paste("K.SCORE.", 1:ei, sep=""))), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE)
             meta.file.cov.handle <- file(meta.file.cov, "wb")
-            writeBin(n.E, meta.file.cov.handle, size = 4)
+            writeBin(as.numeric(ei), meta.file.cov.handle, size = 4)
             writeBin(interaction, meta.file.cov.handle, size = 4)
           }
           for(i in 1:n.groups) {
@@ -727,8 +735,13 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
               IV.V <- KPK - tcrossprod(tcrossprod(KPG,V_i),KPG)
             }
             if(!is.null(meta.file.prefix)) {
+              score <- cbind(tmp.group.info[,c("group","chr","pos","ref","alt")], N, miss, freq, U, matrix(crossprod(K,residuals), nrow = n.p, ncol = ei))
+              # odr <- order(as.numeric(row.names(tmp.group.info)))
+              # score <- score[odr, ]
+              # odr <- rep(odr, (1+ei))+rep(0:ei*length(odr), each=length(odr))
+              # COV <-rbind(cbind(V, t(KPG)), cbind(KPG, KPK))[odr, odr] 
               COV <-rbind(cbind(V, t(KPG)), cbind(KPG, KPK))
-              write.table(cbind(tmp.group.info[,c("group","chr","pos","ref","alt")], N, miss, freq, U, matrix(crossprod(K,residuals), nrow = n.p, ncol = n.E)), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE, append = TRUE)
+              write.table(score, meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE, append = TRUE)
               writeBin(COV[lower.tri(COV, diag = TRUE)], meta.file.cov.handle, size = 4)
             }
             if(use.minor.allele) {
@@ -840,12 +853,13 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
       if(JD) JD.pval <- rep(NA, n.groups)
       if(!is.null(meta.file.prefix)) {
         if(class(null.obj) == "glmmkin.multi") stop("Error: meta-analysis not supported yet for multiple phenotypes.")
+        if(!is.null(interaction.covariates)) stop("Error: meta-analysis not supported yet for interaction.covariates.")
         if(.Platform$endian!="little") stop("Error: platform must be little endian.")
         meta.file.score <- paste0(meta.file.prefix, ".score.1")
         meta.file.cov <- paste0(meta.file.prefix, ".cov.1")
-        write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "G.SCORE", paste("K.SCORE.", 1:n.E, sep=""))), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE)
+        write.table(t(c("group", "chr", "pos", "ref", "alt", "N", "missrate", "altfreq", "G.SCORE", paste("K.SCORE.", 1:ei, sep=""))), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE)
         meta.file.cov.handle <- file(meta.file.cov, "wb")
-        writeBin(n.E, meta.file.cov.handle, size = 4)
+        writeBin(as.numeric(ei), meta.file.cov.handle, size = 4)
         writeBin(interaction, meta.file.cov.handle, size = 4)
       }
       
@@ -926,8 +940,13 @@ MAGEE <- function(null.obj, interaction, geno.file, group.file, group.file.sep =
           IV.V <- KPK - tcrossprod(tcrossprod(KPG,V_i),KPG)
         }
         if(!is.null(meta.file.prefix)) {
+          score <- cbind(tmp.group.info[,c("group","chr","pos","ref","alt")], N, miss, freq, U, matrix(crossprod(K,residuals), nrow = n.p, ncol = ei))
+          # odr <- order(as.numeric(row.names(tmp.group.info)))
+          # score <- score[odr, ]
+          # odr <- rep(odr, (1+ei))+rep(0:ei*length(odr), each=length(odr))
+          # COV <-rbind(cbind(V, t(KPG)), cbind(KPG, KPK))[odr, odr] 
           COV <-rbind(cbind(V, t(KPG)), cbind(KPG, KPK))
-          write.table(cbind(tmp.group.info[,c("group","chr","pos","ref","alt")], N, miss, freq, U, matrix(crossprod(K,residuals), nrow = n.p, ncol = n.E)), meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE, append = TRUE)
+          write.table(score, meta.file.score, quote = FALSE, row.names = FALSE, col.names = FALSE, append = TRUE)
           writeBin(COV[lower.tri(COV, diag = TRUE)], meta.file.cov.handle, size = 4)
         }
         if(use.minor.allele) {

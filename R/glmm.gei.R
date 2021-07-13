@@ -10,6 +10,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
   if(class(missing.method) == "try-error") stop("Error: \"missing.method\" must be \"impute2mean\" or \"omit\".")
   if(!class(interaction) %in% c("integer", "numeric", "character")) stop("Error: \"interaction\" should be an integer, numeric, or character vector.")
   if(any(duplicated(null.obj$id_include))) {
+    stop("Error: longitudinal data is not supoorted in the current version!")
     J <- Matrix(sapply(unique(null.obj$id_include), function(x) 1*(null.obj$id_include==x)), sparse = TRUE)
     residuals <- as.numeric(as.matrix(crossprod(J, null.obj$scaled.residuals)))
     if(!is.null(null.obj$P)) null.obj$P <- as.matrix(crossprod(J, crossprod(null.obj$P, J)))

@@ -109,7 +109,8 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
       
       foreach(b=1:ncores, .inorder=FALSE, .options.multicore = list(preschedule = FALSE, set.seed = FALSE)) %dopar% {
         file.create(paste0(outfile, "_tmp.", b))
-        file.create(paste0("glmmgei_debug_", b, ".out"))
+        debug_file <- paste0("glmmgei_debug_", b, ".out")
+        file.create(debug_file)
         variant.idx <- if(b <= n.p.percore_1) variant.idx.all[((b-1)*(p.percore-1)+1):(b*(p.percore-1))] else variant.idx.all[(n.p.percore_1*(p.percore-1)+(b-n.p.percore_1-1)*p.percore+1):(n.p.percore_1*(p.percore-1)+(b-n.p.percore_1)*p.percore)]
         p <- length(variant.idx)
         if (class(geno.file)[1] != "SeqVarGDSClass") {
@@ -130,7 +131,6 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           AF <- 1 - SeqVarTools::alleleFrequency(gds)
           include <- (MISSRATE <= miss.cutoff & ((AF >= MAF.range[1] & AF <= MAF.range[2]) | (AF >= 1-MAF.range[2] & AF <= 1-MAF.range[1])))
           if(sum(include) == 0) {
-            write.table("", paste0(outfile, "_tmp.", b), quote=FALSE, row.names=FALSE, col.names=FALSE, sep="\t", append=(ii > 1), na=".")
             next
           }
           ii <- ii + 1
@@ -203,7 +203,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             IV.V_i <- try(solve(KPK), silent = TRUE)
             if(class(IV.V_i)[1] == "try-error") IV.V_i <- try(MASS::ginv(KPK), silent = TRUE)
             if (class(IV.V_i)[1] == "try-error") {
-              fix_out <- fix.dgesdd(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
+              fix_out <- fix.dgesdd(gds, out, debug_file, null.obj, residuals, tmp2.variant.idx, meta.output, center, missing.method, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
               tmp_idx <<- fix_out[[1]]
               include <<- fix_out[[2]]
               return(fix_out[[3]])
@@ -218,7 +218,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             IV.E_i <- try(solve(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
             if(class(IV.E_i)[1] == "try-error") IV.E_i <- try(MASS::ginv(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
             if(class(IV.E_i)[1] == "try-error") {
-              fix_out <- fix.dgesdd(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
+              fix_out <- fix.dgesdd(gds, out, debug_file, null.obj, residuals, tmp2.variant.idx, meta.output, center, missing.method, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
               tmp_idx <<- fix_out[[1]]
               include <<- fix_out[[2]]
               return(fix_out[[3]])
@@ -227,8 +227,8 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             
             IV.GE_i <- try(solve(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
             if(class(IV.GE_i)[1] == "try-error") IV.GE_i <- try(MASS::ginv(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
-            if(class(IV.GE_i)[1] == "try-error") {
-              fix_out <- fix.dgesdd(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
+            if (class(IV.GE_i)[1] == "try-error") {
+              fix_out <- fix.dgesdd(gds, out, debug_file, null.obj, residuals, tmp2.variant.idx, meta.output, center, missing.method, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
               tmp_idx <<- fix_out[[1]]
               include <<- fix_out[[2]]
               return(fix_out[[3]])
@@ -271,13 +271,12 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             }
             
           })
-          
-         
+
           if (any(include)) {
             out <- out[include,]
             tmp.out <- matrix(unlist(tmp.out), ncol = totalCol, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
             out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
-            write.table(out, outfile, quote=FALSE, row.names=FALSE, col.names=FALSE, sep="\t", append=TRUE, na=".")
+            write.table(out, paste0(outfile, "_tmp.", b), quote=FALSE, row.names=FALSE, col.names=FALSE, sep="\t", append=TRUE, na=".")
           }
           
           rm(tmp.out)
@@ -287,7 +286,9 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
       }
       for(b in 1:ncores) {
         system(paste0("cat ", outfile, "_tmp.", b, " >> ", outfile))
+        system(paste0("cat ", "glmmgei_debug_", b , ".out", " >> ", "glmmgei_debug.out"))
         unlink(paste0(outfile, "_tmp.", b))
+        unlink(paste0("glmmgei_debug_", b , ".out"))
       }
     } else { # use a single core
       variant.idx <- variant.idx.all
@@ -320,7 +321,8 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
       }
       write.table(t(data.frame(n = c("SNP","CHR","POS","REF","ALT", "N", "MISSRATE","AF", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT"))), outfile, quote = F, col.names = F, row.names = F, sep="\t")
       
-      file.create(paste0("glmmgei_debug_1.out"))
+      debug_file <- paste0("glmmgei_debug.out")
+      file.create(debug_file)
       for(i in 1:nbatch.flush) {
         gc()
         tmp.variant.idx <- if(i == nbatch.flush) variant.idx[((i-1)*100000+1):p] else variant.idx[((i-1)*100000+1):(i*100000)]
@@ -377,7 +379,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             PG <- crossprod(null.obj$P, geno)
           } else {
             GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
-            PG <- crossprod(as.matrix(null.obj$Sigma_i), geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
+            PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
           }
           
           GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1, 1) %x% diag(ng))
@@ -394,14 +396,14 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             KPK <- crossprod(K,crossprod(null.obj$P,K))
           } else {
             KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
-            KPK <- crossprod(K, crossprod(as.matrix(null.obj$Sigma_i), K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
+            KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
           }
           KPK <- as.matrix(KPK) * (matrix(1, ncolE, ncolE) %x% diag(ng))
        
           IV.V_i <- try(solve(KPK), silent = TRUE)
           if(class(IV.V_i)[1] == "try-error") IV.V_i <- try(MASS::ginv(KPK), silent = TRUE)
           if (class(IV.V_i)[1] == "try-error") {
-            fix_out <- fix.dgesdd(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
+            fix_out <- fix.dgesdd(gds, out, debug_file, null.obj, residuals, tmp2.variant.idx, meta.output, center, missing.method, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
             tmp_idx <<- fix_out[[1]]
             include <<- fix_out[[2]]
             return(fix_out[[3]])
@@ -416,7 +418,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           IV.E_i <- try(solve(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
           if(class(IV.E_i)[1] == "try-error") IV.E_i <- try(MASS::ginv(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
           if(class(IV.E_i)[1] == "try-error") {
-            fix_out <- fix.dgesdd(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
+            fix_out <- fix.dgesdd(gds, out, debug_file, null.obj, residuals, tmp2.variant.idx, meta.output, center, missing.method, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
             tmp_idx <<- fix_out[[1]]
             include <<- fix_out[[2]]
             return(fix_out[[3]])
@@ -426,7 +428,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           IV.GE_i <- try(solve(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
           if(class(IV.GE_i)[1] == "try-error") IV.GE_i <- try(MASS::ginv(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
           if(class(IV.GE_i)[1] == "try-error") {
-            fix_out <- fix.dgesdd(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
+            fix_out <- fix.dgesdd(gds, out, debug_file, null.obj, residuals, tmp2.variant.idx, meta.output, center, missing.method, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
             tmp_idx <<- fix_out[[1]]
             include <<- fix_out[[2]]
             return(fix_out[[3]])
@@ -604,7 +606,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
 }
 
 
-fix.dgesdd <- function(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include) {
+fix.dgesdd <- function(gds, out, debug_file, null.obj, residuals, tmp2.variant.idx, meta.output, center, missing.method, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include) {
   ei1 <- ei+1
   tmp_idx0 <- tmp_idx
   tmp.out <- lapply(tmp2.variant.idx, function(j) {
@@ -636,7 +638,7 @@ fix.dgesdd <- function(gds, null.obj, residuals, tmp2.variant.idx, meta.output, 
       PG <- crossprod(null.obj$P, geno)
     } else {
       GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
-      PG <- crossprod(as.matrix(null.obj$Sigma_i), geno) - tcrossprod(as.matrix(null.obj$Sigma_iX), tcrossprod(GSigma_iX, null.obj$cov))
+      PG <- crossprod(null.obj$Sigma_i, geno) - tcrossprod(null.obj$Sigma_iX, tcrossprod(GSigma_iX, null.obj$cov))
     }
 
     GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1, 1) %x% diag(ng))
@@ -653,13 +655,17 @@ fix.dgesdd <- function(gds, null.obj, residuals, tmp2.variant.idx, meta.output, 
       KPK <- crossprod(K,crossprod(null.obj$P,K))
     } else {
       KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
-      KPK <- crossprod(K, crossprod(as.matrix(null.obj$Sigma_i), K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
+      KPK <- crossprod(K, crossprod(null.obj$Sigma_i, K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
     }
     
     KPK <- as.matrix(KPK) * (matrix(1, ncolE, ncolE) %x% diag(ng))
     IV.V_i <- try(solve(KPK), silent = TRUE)
     if(class(IV.V_i)[1] == "try-error") IV.V_i <- try(MASS::ginv(KPK), silent = TRUE)
     if (class(IV.V_i)[1] == "try-error") {
+      write.table("Variant Info: ", debug_file, row.names = F, col.names = F, quote = F, append = T)
+      write.table(out[tmp_idx, ], debug_file, row.names = F, col.names = F, quote = F, append = T)
+      write.table("KPK: ", debug_file, row.names = F, col.names = F, quote = F, append = T)
+      write.table(KPK, debug_file, row.names = F, col.names = F, quote = F, append = T)
       include[tmp_idx] <<- F
       tmp_idx <<- tmp_idx + 1
       return(NULL)
@@ -674,6 +680,12 @@ fix.dgesdd <- function(gds, null.obj, residuals, tmp2.variant.idx, meta.output, 
     IV.E_i <- try(solve(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
     if(class(IV.E_i)[1] == "try-error") IV.E_i <- try(MASS::ginv(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
     if(class(IV.E_i)[1] == "try-error") {
+      write.table("Variant Info: ", debug_file, row.names = F, col.names = F, quote = F, append = T)
+      write.table(out[tmp_idx, ], debug_file, row.names = F, col.names = F, quote = F, append = T)
+      write.table("KPK: ", debug_file, row.names = F, col.names = F, quote = F, append = T)
+      write.table(KPK, debug_file, row.names = F, col.names = F, quote = F, append = T)
+      write.table("IV.E_i: ", debug_file, row.names = F, col.names = F, quote = F, append = T)
+      write.table(IV.V_i[ng1:ngei1, ng1:ngei1], debug_file, row.names = F, col.names = F, quote = F, append = T)
       include[tmp_idx] <<- F
       tmp_idx <<- tmp_idx + 1
       return(NULL)
@@ -683,6 +695,12 @@ fix.dgesdd <- function(gds, null.obj, residuals, tmp2.variant.idx, meta.output, 
     IV.GE_i <- try(solve(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
     if(class(IV.GE_i)[1] == "try-error") IV.GE_i <- try(MASS::ginv(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
     if(class(IV.GE_i)[1] == "try-error") {
+      write.table("Variant Info: ", debug_file, row.names = F, col.names = F, quote = F, append = T)
+      write.table(out[tmp_idx, ], debug_file, row.names = F, col.names = F, quote = F, append = T)
+      write.table("KPK: ", debug_file, row.names = F, col.names = F, quote = F, append = T)
+      write.table(KPK, debug_file, row.names = F, col.names = F, quote = F, append = T)
+      write.table("IV.GE_i: ", debug_file, row.names = F, col.names = F, quote = F, append = T)
+      write.table(IV.V_i[1:ngei1, 1:ngei1], debug_file, row.names = F, col.names = F, quote = F, append = T)
       include[tmp_idx] <<- F
       tmp_idx <<- tmp_idx + 1
       return(NULL)

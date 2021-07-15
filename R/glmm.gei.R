@@ -146,7 +146,8 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           out$ALT <- unlist(lapply(alleles.list, function(x) paste(x[-1], collapse=",")))
           out$MISSRATE <- MISSRATE[include]
           out$AF <- AF[include]
-          rm(alleles.list, include)
+          include <- include[include]
+          rm(alleles.list)
           tmp_idx <- 1
           tmp.out <- lapply(1:((tmp.p-1) %/% nperbatch + 1), function(j) {
             tmp2.variant.idx <- if(j == (tmp.p-1) %/% nperbatch + 1) tmp.variant.idx[((j-1)*nperbatch+1):tmp.p] else tmp.variant.idx[((j-1)*nperbatch+1):(j*nperbatch)]
@@ -202,14 +203,10 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             IV.V_i <- try(solve(KPK), silent = TRUE)
             if(class(IV.V_i)[1] == "try-error") IV.V_i <- try(MASS::ginv(KPK), silent = TRUE)
             if (class(IV.V_i)[1] == "try-error") {
-              write.table("Variant Info: ", paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table(out[tmp_idx, ], paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table("Geno: ", paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table(geno, paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table("KPK: ", paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table(KPK, paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              tmp_idx <<- tmp_idx + 1
-              return(NULL)
+              fix_out <- fix.dgesdd(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
+              tmp_idx <<- fix_out[[1]]
+              include <<- fix_out[[2]]
+              return(fix_out[[3]])
             }
             
             IV.U <- (rep(1, ncolE) %x% diag(ng)) * as.vector(crossprod(K,residuals))
@@ -221,32 +218,20 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
             IV.E_i <- try(solve(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
             if(class(IV.E_i)[1] == "try-error") IV.E_i <- try(MASS::ginv(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
             if(class(IV.E_i)[1] == "try-error") {
-              write.table("Variant Info: ", paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table(out[tmp_idx, ], paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table("Geno: ", paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table(geno, paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table("KPK: ", paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table(KPK, paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table("IV.E_i: ", paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table(IV.V_i[ng1:ngei1, ng1:ngei1], paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              tmp_idx <<- tmp_idx + 1
-              return(NULL)
+              fix_out <- fix.dgesdd(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
+              tmp_idx <<- fix_out[[1]]
+              include <<- fix_out[[2]]
+              return(fix_out[[3]])
             }
             STAT.INT   <- diag(crossprod(BETA.INT[ng1:ngei1,], crossprod(IV.E_i, BETA.INT[ng1:ngei1,])))
             
             IV.GE_i <- try(solve(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
             if(class(IV.GE_i)[1] == "try-error") IV.GE_i <- try(MASS::ginv(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
             if(class(IV.GE_i)[1] == "try-error") {
-              write.table("Variant Info: ", paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table(out[tmp_idx, ], paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table("Geno: ", paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table(geno, paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table("KPK: ", paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table(KPK, paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table("IV.GE_i: ", paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              write.table(IV.V_i[1:ngei1, 1:ngei1], paste0("glmmgei_debug_", b, ".out"), row.names = F, col.names = F, quote = F, append = T)
-              tmp_idx <<- tmp_idx + 1
-              return(NULL)
+              fix_out <- fix.dgesdd(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
+              tmp_idx <<- fix_out[[1]]
+              include <<- fix_out[[2]]
+              return(fix_out[[3]])
             }
             STAT.JOINT <- diag(crossprod(BETA.INT[1:ngei1,], crossprod(IV.GE_i, BETA.INT[1:ngei1,])))
             
@@ -261,7 +246,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
               IV.V_i <- split(IV.V_i, split_mat %x% diag(ng))
             }
 
-            tmp_idx <<- tmp_idx + 1
+            tmp_idx <<- tmp_idx + ng
             if (meta.output) {
               return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN, 
                            diag(as.matrix(BETA.INT[1:ng,])), # Beta G;
@@ -288,11 +273,11 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           })
           
          
-          nn_idx <- !sapply(tmp.out,is.null)
-          if (any(nn_idx)) {
+          if (any(include)) {
+            out <- out[include,]
             tmp.out <- matrix(unlist(tmp.out), ncol = totalCol, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
-            out <- cbind(out[nn_idx,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[nn_idx,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
-            write.table(out, paste0(outfile, "_tmp.", b), quote=FALSE, row.names=FALSE, col.names=FALSE, sep="\t", append=TRUE, na=".")
+            out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
+            write.table(out, outfile, quote=FALSE, row.names=FALSE, col.names=FALSE, sep="\t", append=TRUE, na=".")
           }
           
           rm(tmp.out)
@@ -359,7 +344,8 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
         out$ALT <- unlist(lapply(alleles.list, function(x) paste(x[-1], collapse=",")))
         out$MISSRATE <- MISSRATE[include]
         out$AF <- AF[include]
-        rm(alleles.list, include)
+        include <- include[include]
+        rm(alleles.list)
         tmp_idx <- 1
         tmp.out <- lapply(1:((tmp.p-1) %/% nperbatch + 1), function(j) {
           tmp2.variant.idx <- if(j == (tmp.p-1) %/% nperbatch + 1) tmp.variant.idx[((j-1)*nperbatch+1):tmp.p] else tmp.variant.idx[((j-1)*nperbatch+1):(j*nperbatch)]
@@ -415,14 +401,10 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           IV.V_i <- try(solve(KPK), silent = TRUE)
           if(class(IV.V_i)[1] == "try-error") IV.V_i <- try(MASS::ginv(KPK), silent = TRUE)
           if (class(IV.V_i)[1] == "try-error") {
-            write.table("Variant Info: ", paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table(out[tmp_idx, ], paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table("Geno: ", paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table(geno, paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table("KPK: ", paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table(KPK, paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            tmp_idx <<- tmp_idx + 1
-            return(NULL)
+            fix_out <- fix.dgesdd(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
+            tmp_idx <<- fix_out[[1]]
+            include <<- fix_out[[2]]
+            return(fix_out[[3]])
           }
           
           IV.U <- (rep(1, ncolE) %x% diag(ng)) * as.vector(crossprod(K,residuals))
@@ -434,32 +416,20 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           IV.E_i <- try(solve(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
           if(class(IV.E_i)[1] == "try-error") IV.E_i <- try(MASS::ginv(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
           if(class(IV.E_i)[1] == "try-error") {
-            write.table("Variant Info: ", paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table(out[tmp_idx, ], paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table("Geno: ", paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table(geno, paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table("KPK: ", paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table(KPK, paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table("IV.E_i: ", paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table(IV.V_i[ng1:ngei1, ng1:ngei1], paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            tmp_idx <<- tmp_idx + 1
-            return(NULL)
+            fix_out <- fix.dgesdd(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
+            tmp_idx <<- fix_out[[1]]
+            include <<- fix_out[[2]]
+            return(fix_out[[3]])
           }
           STAT.INT   <- diag(crossprod(BETA.INT[ng1:ngei1,], crossprod(IV.E_i, BETA.INT[ng1:ngei1,])))
           
           IV.GE_i <- try(solve(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
           if(class(IV.GE_i)[1] == "try-error") IV.GE_i <- try(MASS::ginv(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
           if(class(IV.GE_i)[1] == "try-error") {
-            write.table("Variant Info: ", paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table(out[tmp_idx, ], paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table("Geno: ", paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table(geno, paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table("KPK: ", paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table(KPK, paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table("IV.GE_i: ", paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            write.table(IV.V_i[1:ngei1, 1:ngei1], paste0("glmmgei_debug_1.out"), row.names = F, col.names = F, quote = F, append = T)
-            tmp_idx <<- tmp_idx + 1
-            return(NULL)
+            fix_out <- fix.dgesdd(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include)
+            tmp_idx <<- fix_out[[1]]
+            include <<- fix_out[[2]]
+            return(fix_out[[3]])
           }
           STAT.JOINT <- diag(crossprod(BETA.INT[1:ngei1,], crossprod(IV.GE_i, BETA.INT[1:ngei1,])))
           
@@ -473,7 +443,7 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           }else {
             IV.V_i <- split(IV.V_i, split_mat %x% diag(ng))
           }
-          tmp_idx <<- tmp_idx + 1
+          tmp_idx <<- tmp_idx + ng
           if (meta.output) {
             return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN, 
                          diag(as.matrix(BETA.INT[1:ng,])), # Beta G;
@@ -498,10 +468,10 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
           }
           
         })
-        nn_idx <- !sapply(tmp.out,is.null)
-        if (any(nn_idx)) {
+        if (any(include)) {
+          out <- out[include,]
           tmp.out <- matrix(unlist(tmp.out), ncol = totalCol, byrow = TRUE, dimnames = list(NULL, c("N", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT")))
-          out <- cbind(out[nn_idx,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[nn_idx,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
+          out <- cbind(out[,c("SNP","CHR","POS","REF","ALT")], tmp.out[,"N", drop = F], out[,c("MISSRATE","AF")], tmp.out[,c("AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), drop = F])
           write.table(out, outfile, quote=FALSE, row.names=FALSE, col.names=FALSE, sep="\t", append=TRUE, na=".")
         }
         
@@ -631,4 +601,134 @@ glmm.gei <- function(null.obj, interaction, geno.file, outfile, bgen.samplefile=
     }
     return(invisible(NULL))
   }
+}
+
+
+fix.dgesdd <- function(gds, null.obj, residuals, tmp2.variant.idx, meta.output, center, strata, ncolE, E, ei, meta.header, totalCol, tmp_idx, include) {
+  ei1 <- ei+1
+  tmp_idx0 <- tmp_idx
+  tmp.out <- lapply(tmp2.variant.idx, function(j) {
+   
+    SeqArray::seqSetFilter(gds, variant.id = j, verbose = FALSE)
+    geno <- SeqVarTools::altDosage(gds, use.names = FALSE)
+    ng <- ncol(geno)
+    
+    N <- nrow(geno) - colSums(is.na(geno))
+    AF.strata.min <- AF.strata.max <- rep(NA, ng)
+    if(!is.null(strata)) { # E is not continuous
+      #freq_strata <- apply(geno,2,function(x) range(tapply(x,strata,mean,na.rm=TRUE)/2))
+      freq.tmp <- sapply(strata.list, function(x) colMeans(geno[x, , drop = FALSE], na.rm = TRUE)/2)
+      if (length(dim(freq.tmp)) == 2) freq_strata <- apply(freq.tmp, 1, range) else freq_strata <- as.matrix(range(freq.tmp))
+      AF.strata.min <- freq_strata[1,]
+      AF.strata.max <- freq_strata[2,]
+    }
+    
+    if(center) geno <- scale(geno, scale = FALSE)
+    miss.idx <- which(is.na(geno))
+    if(length(miss.idx)>0) {
+      geno[miss.idx] <- if(!center & missing.method == "impute2mean") colMeans(geno, na.rm = TRUE)[ceiling(miss.idx/nrow(geno))] else 0
+    }
+    
+    K <- do.call(cbind, sapply(1:ncolE, function(xx) geno*E[,xx], simplify = FALSE), envir = environment())
+
+    U <- as.vector(crossprod(geno, residuals))
+    if(!is.null(null.obj$P)) {
+      PG <- crossprod(null.obj$P, geno)
+    } else {
+      GSigma_iX <- crossprod(geno, null.obj$Sigma_iX)
+      PG <- crossprod(as.matrix(null.obj$Sigma_i), geno) - tcrossprod(as.matrix(null.obj$Sigma_iX), tcrossprod(GSigma_iX, null.obj$cov))
+    }
+
+    GPG <- as.matrix(crossprod(geno, PG)) * (matrix(1, 1, 1) %x% diag(ng))
+    GPG_i <- try(solve(GPG), silent = TRUE)
+    if(class(GPG_i)[1] == "try-error") GPG_i <- MASS::ginv(GPG)
+    V_i <- diag(GPG_i)
+    
+    BETA.MAIN <- V_i * U
+    SE.MAIN   <- sqrt(V_i)
+    STAT.MAIN <- BETA.MAIN * U
+    PVAL.MAIN <- ifelse(V_i>0, pchisq(STAT.MAIN, df=1, lower.tail=FALSE), NA)
+
+    if(!is.null(null.obj$P)) {
+      KPK <- crossprod(K,crossprod(null.obj$P,K))
+    } else {
+      KSigma_iX <- crossprod(K, null.obj$Sigma_iX)
+      KPK <- crossprod(K, crossprod(as.matrix(null.obj$Sigma_i), K)) - tcrossprod(KSigma_iX, tcrossprod(KSigma_iX, null.obj$cov))
+    }
+    
+    KPK <- as.matrix(KPK) * (matrix(1, ncolE, ncolE) %x% diag(ng))
+    IV.V_i <- try(solve(KPK), silent = TRUE)
+    if(class(IV.V_i)[1] == "try-error") IV.V_i <- try(MASS::ginv(KPK), silent = TRUE)
+    if (class(IV.V_i)[1] == "try-error") {
+      include[tmp_idx] <<- F
+      tmp_idx <<- tmp_idx + 1
+      return(NULL)
+    }
+    
+    IV.U <- (rep(1, ncolE) %x% diag(ng)) * as.vector(crossprod(K,residuals))
+    BETA.INT <- crossprod(IV.V_i, IV.U)
+    
+    ng1   <- ng+1
+    ngei1 <- ng*ei1
+    
+    IV.E_i <- try(solve(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
+    if(class(IV.E_i)[1] == "try-error") IV.E_i <- try(MASS::ginv(IV.V_i[ng1:ngei1, ng1:ngei1]), silent = TRUE)
+    if(class(IV.E_i)[1] == "try-error") {
+      include[tmp_idx] <<- F
+      tmp_idx <<- tmp_idx + 1
+      return(NULL)
+    }
+    STAT.INT   <- diag(crossprod(BETA.INT[ng1:ngei1,], crossprod(IV.E_i, BETA.INT[ng1:ngei1,])))
+    
+    IV.GE_i <- try(solve(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
+    if(class(IV.GE_i)[1] == "try-error") IV.GE_i <- try(MASS::ginv(IV.V_i[1:ngei1, 1:ngei1]), silent = TRUE)
+    if(class(IV.GE_i)[1] == "try-error") {
+      include[tmp_idx] <<- F
+      tmp_idx <<- tmp_idx + 1
+      return(NULL)
+    }
+    STAT.JOINT <- diag(crossprod(BETA.INT[1:ngei1,], crossprod(IV.GE_i, BETA.INT[1:ngei1,])))
+    
+    PVAL.INT   <- pchisq(STAT.INT, df=ei, lower.tail=FALSE)
+    PVAL.JOINT <- ifelse(is.na(PVAL.MAIN), NA, pchisq(STAT.JOINT, df=1+ei, lower.tail=FALSE))
+    
+    
+    split_mat <- matrix(1:(ncolE*ncolE), ncolE, ncolE)
+    if (ng > 1) {
+      IV.V_i <- split(IV.V_i, split_mat %x% diag(ng))[-1]
+    }else {
+      IV.V_i <- split(IV.V_i, split_mat %x% diag(ng))
+    }
+    tmp_idx <<- tmp_idx + 1
+    if (meta.output) {
+      return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN, 
+                   diag(as.matrix(BETA.INT[1:ng,])), # Beta G;
+                   t(do.call(cbind, lapply(2:ncolE, function(x) {diag(as.matrix(BETA.INT[(((x-1)*ng)+1):(ng*x),]))}))), # Beta GxE and then Beta Covariates
+                   t(sqrt(do.call(cbind, lapply(seq(1,ncolE*ncolE, ncolE+1), function(x) {IV.V_i[[x]]})))),
+                   t(do.call(cbind, lapply(split_mat[lower.tri(split_mat)], function(x) {IV.V_i[[x]]}))),
+                   PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+    } else {
+      split_mat <- as.matrix(split_mat[2:(ei+1),2:(ei+1)])
+      if (length(split_mat) == 1) {
+        return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN,
+                     t(do.call(cbind, lapply(2:(ei+1), function(x) {diag(as.matrix(BETA.INT[(((x-1)*ng)+1):(ng*x),]))}))), # Beta GxE only
+                     t(sqrt(do.call(cbind,lapply(diag(split_mat), function(x) {IV.V_i[[x]]})))),   # SE Beta GxE only
+                     PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT))
+      } else {
+        return(rbind(N, AF.strata.min, AF.strata.max, BETA.MAIN, SE.MAIN,
+                     t(do.call(cbind, lapply(2:(ei+1), function(x) {diag(as.matrix(BETA.INT[(((x-1)*ng)+1):(ng*x),]))}))), # Beta GxE only
+                     t(sqrt(do.call(cbind,lapply(diag(split_mat), function(x) {IV.V_i[[x]]})))),   # SE Beta GxE only
+                     t(do.call(cbind, lapply(split_mat[lower.tri(split_mat)], function(x) {IV.V_i[[x]]}))),
+                     PVAL.MAIN, STAT.INT, PVAL.INT, PVAL.JOINT)) 
+      }
+    }
+    
+  })
+  if (any(include[tmp_idx0:(tmp_idx-1)])) {
+    tmp.out <- matrix(unlist(tmp.out), nrow = totalCol, byrow = F, dimnames = list(c("N", "AF.strata.min", "AF.strata.max", "BETA.MARGINAL", "SE.MARGINAL", meta.header, "PVAL.MARGINAL", "STAT.INT", "PVAL.INT", "PVAL.JOINT"), NULL))
+    return(list(tmp_idx, include, tmp.out))
+  } else {
+    return(list(tmp_idx, include, NULL))
+  }
+  
 }
